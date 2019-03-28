@@ -15,7 +15,7 @@ Ogni NODE sarà un attore Erlang su un nodo Erlang.
 
  Nota: ci sarà un nodo creato dal docente il cui PID dell'attore
        e il cui indirizzo del nodo saranno pubblici e statici
-       al quale potente mandare richieste {friends,...}
+       al quale potente mandare richieste {get_friends,...}
 
 @ una transazione è una coppia {IDtransazione, Payload}
 
