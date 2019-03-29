@@ -64,7 +64,7 @@ Ogni NODE sarà un attore Erlang su un nodo Erlang.
    ricevuto con una update (accettare = il blocco entra nella catena che per voi
    è la più lunga)
 3. per minare un blocco dovete risolvere un problema computazionalmente costoso
-   invocando proof_of_work:solve(Lista_di_transazioni) sulla lista di transazioni
+   invocando proof_of_work:solve({IDblocco_precedente,Lista_di_transazioni}) sulla lista di transazioni
    che volete includere nel blocco.
    Un blocco può contenere al massimo 10 transazioni
 4. ogni volta che inviate un messaggio, ci deve essere una probabilità su 10
