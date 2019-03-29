@@ -14,44 +14,57 @@ watch(Main,Node) ->
   after 2000 -> Main ! {dead, Node}
   end.
 
-loop(Nodes) ->
-  % TODO: ask teacher_node for friends 
-  if 
-    length(Nodes) == 0 ->
-      ask_teacher();
-    length(Nodes) < 3 ->
-      io:format("I only have ~p friends. Ask a friend for more friends~n", [length(Nodes)]),
-      lists:nth(rand:uniform(length(Nodes)), Nodes) ! {get_friends, self(), make_ref()};
-    true ->
-      true
-  end,
+loop(Nodes, Nonces) ->
+  New_nonces = if 
+                 length(Nodes) == 0 ->
+                   [ask_teacher() | Nonces];
+                 length(Nodes) < 3 ->
+                   [ask_friend(Nodes)| Nonces];
+                 true ->
+                   Nonces
+               end,
   receive
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref} ,
-      loop(Nodes) ;
+      loop(Nodes, New_nonces);
     {get_friends, Sender, Nonce} ->
       New_nodes = add_nodes(Sender, Nodes),
       Sender ! {friends, Nonce, New_nodes},
-      loop(New_nodes) ;
-    {friends, _Nonce, Incomming_nodes} ->
-      New_nodes = add_nodes(Incomming_nodes, Nodes),
-      io:format("~p nodes discovered~n", [length(New_nodes)]),
-      % ask teacher for more friends if we didn't get enough from a friend
-      if 
-        length(New_nodes) < 3 ->
-          ask_teacher();
+      loop(New_nodes, New_nonces) ;
+    {friends, Nonce, Incomming_nodes} ->
+      case lists:member({friends, Nonce}, New_nonces) of
         true ->
-          true
-      end,
-      loop(New_nodes);
+          New_nodes = add_nodes(Incomming_nodes, Nodes),
+          io:format("~p nodes discovered~n", [length(New_nodes)]),
+          % ask teacher for more friends if we didn't get enough from a friend
+          New_New_nonces = if 
+                             length(New_nodes) < 3 ->
+                               [ask_teacher() | Nonces];
+                             true ->
+                               New_nonces
+                           end,
+          loop(New_nodes, New_New_nonces);
+        false ->
+          io:format("FAKE MESSAGE: We got a wrong nonce with the friends list"),
+          loop(Nodes, New_nonces)
+      end;
     {dead, Node} ->
       io:format("Dead node ~p~n",[Node]),
-      loop(Nodes -- [Node])
+      loop(Nodes -- [Node], New_nonces)
   end.
 
 ask_teacher() -> 
-      io:format("Ask teacher for more friends~n"),
-      {teacher_node, 'teacher_node@librem'} ! {get_friends, self(), make_ref()}.
+  Ref = make_ref(),
+  io:format("Ask teacher for more friends~n"),
+  {teacher_node, 'teacher_node@librem'} ! {get_friends, self(), Ref},
+  {friends, Ref}.
+
+ask_friend(Nodes) ->
+  Ref = make_ref(),
+  io:format("I only have ~p friends. Ask a friend for more friends~n", [length(Nodes)]),
+  lists:nth(rand:uniform(length(Nodes)), Nodes) ! {get_friends, self(), Ref},
+  {friends, Ref}.
+
 add_nodes([], Nodes) -> Nodes;
 add_nodes([H|T], Nodes) -> 
   if 
@@ -72,7 +85,7 @@ main() ->
   %register(jsparber_node, self()),
   %global:register_name(jsparber_node, self()),
   io:format("A new jsparber_node registered~n"),
-  loop([]).
+  loop([], []).
 
 %%%%%%%%%%%%%%%% Testing only, do not use! %%%%%%%%%%%%%%%%%%%%
 
