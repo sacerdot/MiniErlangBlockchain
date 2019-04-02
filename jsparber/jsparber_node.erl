@@ -15,7 +15,7 @@ watch(Main,Node) ->
   end.
 
 loop(Nodes, Nonces) ->
-  New_nonces = if 
+  New_nonces = if
                  length(Nodes) == 0 ->
                    [ask_teacher() | Nonces];
                  length(Nodes) < 3 ->
@@ -37,23 +37,76 @@ loop(Nodes, Nonces) ->
           New_nodes = add_nodes(Incomming_nodes, Nodes),
           io:format("~p nodes discovered~n", [length(New_nodes)]),
           % ask teacher for more friends if we didn't get enough from a friend
-          New_New_nonces = if 
+          New_New_nonces = if
                              length(New_nodes) < 3 ->
-                               [ask_teacher() | Nonces];
+                               [ask_teacher() | New_nonces];
                              true ->
                                New_nonces
                            end,
-          loop(New_nodes, New_New_nonces);
+          %We need to remove the Nonce
+          loop(New_nodes, lists:delete({friends, Nonce}, New_New_nonces));
         false ->
-          io:format("FAKE MESSAGE: We got a wrong nonce with the friends list"),
+          io:format("INVALID MESSAGE: We got a wrong nonce with the friends list"),
           loop(Nodes, New_nonces)
       end;
     {dead, Node} ->
       io:format("Dead node ~p~n",[Node]),
-      loop(Nodes -- [Node], New_nonces)
+      loop(Nodes -- [Node], New_nonces);
+    {get_previous, Sender, Nonce, Prev_block_id} ->
+      storage ! {get_previous, Nonce, Sender, Prev_block_id};
+    {previous, Nonce, Block} ->
+      %TODO: check Nonce and if block is valid
+      storage ! {add_block, Block};
+    {get_head, Sender, Nonce} ->
+      storage ! {get_head, Nonce, Sender};
+    {head, Nonce, Block} ->
+      %TODO: check Nonce and if block is valid
+      storage ! {update, Block};
+    %Alogritm for gossiping blocks
+    {update, {Block_id, Prev_block_id, List_of_transection, Solution}}  ->
+      case proof_of_work:check({Block_id, List_of_transection}, Solution) of
+        true ->
+          send_all(Nodes, {Block_id, Prev_block_id, List_of_transection, Solution}),
+          storage ! {add_block, {Block_id, Prev_block_id, List_of_transection, Solution}};
+        false ->
+          io:format("Wrong solution")
+      end;
+    %Alogritm for gossiping transections
+    {push, Transaction} ->
+      % TODO: stop gossiping if transection was already known
+      send_all(Nodes, {push, Transaction}),
+      storage ! {add_transaction, Transaction}
   end.
 
-ask_teacher() -> 
+storage_loop(Blocks, Transactions) ->
+  receive
+    {add_block, Block}  ->
+      % TODO: add Block in correct location
+      storage_loop([Block | Blocks], Transactions);
+    {add_transaction, Transaction} ->
+      storage_loop(Blocks, [Transaction | Transactions]);
+    % TODO: create new block if Tracntions more then 10, DO mining
+    {get_previous, Nonce, Sender, Prev_block_id} ->
+      Sender ! {previous, Nonce, get_block(Blocks, Prev_block_id)};
+    {get_head, Nonce, Sender} ->
+      Sender ! {head, Nonce, lists:head(Blocks)}
+  end.
+
+send_all([], _) -> none;
+send_all([H | T], Data) ->
+  H ! Data,
+  send_all(T, Data).
+
+get_block([], _) -> none;
+get_block([{Block_id, Prev_block_id, List_of_transection, Solution} | T], Id) ->
+  if
+    Id == Prev_block_id ->
+      {Block_id, Prev_block_id, List_of_transection, Solution};
+    true ->
+      get_block(T, id)
+  end.
+
+ask_teacher() ->
   Ref = make_ref(),
   io:format("Ask teacher for more friends~n"),
   {teacher_node, 'teacher_node@librem'} ! {get_friends, self(), Ref},
@@ -66,8 +119,8 @@ ask_friend(Nodes) ->
   {friends, Ref}.
 
 add_nodes([], Nodes) -> Nodes;
-add_nodes([H|T], Nodes) -> 
-  if 
+add_nodes([H|T], Nodes) ->
+  if
     self() /= H ->
       case lists:member(H, Nodes) of
         true -> add_nodes(T, Nodes);
@@ -77,7 +130,7 @@ add_nodes([H|T], Nodes) ->
           spawn(fun () -> watch(Self, H) end),
           add_nodes(T, [H|Nodes])
       end;
-    true -> 
+    true ->
       add_nodes(T, Nodes)
   end.
 
@@ -85,6 +138,7 @@ main() ->
   %register(jsparber_node, self()),
   %global:register_name(jsparber_node, self()),
   io:format("A new jsparber_node registered~n"),
+  register(storage, spawn(fun () -> storage_loop([], []) end)),
   loop([], []).
 
 %%%%%%%%%%%%%%%% Testing only, do not use! %%%%%%%%%%%%%%%%%%%%
