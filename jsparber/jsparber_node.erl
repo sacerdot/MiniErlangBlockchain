@@ -38,9 +38,11 @@ loop(Nodes, Nonces) ->
                                 [ask_teacher() | New_nonces];
                               true -> New_nonces
                            end,
-          %We remove the Nonce
+          % Ask all new Nodes for there head
+          This_nonces = request_head_all(Incomming_nodes),
+          %We remove the Nonce and we need to add Nonces for each head request
           loop(New_nodes,
-               lists:delete({friends, Nonce}, New_New_nonces));
+               [This_nonces | lists:delete({friends, Nonce}, New_New_nonces)]);
         false ->
           io:format("INVALID MESSAGE: We got a wrong nonce "
                     "with the friends list"),
@@ -91,22 +93,16 @@ loop(Nodes, Nonces) ->
 
 storage_loop(Blocks, Heads, Transactions) ->
   receive
-    % Block doesn't have a Block_id because we just finished mining it
-    {add_block_as_head,
-     {_Id, _Block_transactions, _Solution}} ->
-      %TODO: get old head
-      %New_block = {Id, Old_head, Block_transactions, Solution},
-      %jsparber_node ! {update, New_block};
-      storage_loop(Blocks, Heads, Transactions);
     {add_block, Block} ->
-      New_block = case check_block(Blocks, Block) of
+      {Final_blocks, Final_trans} = case check_block(Blocks, Block) of
                     true ->
-                      jsparber_node ! {gossip, Block}, [Block | Blocks];
-                    false -> Blocks
+                      New_blocks = [Block | Blocks],
+                      %TODO: update Heads and clean up Blocks
+                      jsparber_node ! {gossip, Block},
+                      {New_blocks, remove_transactions(Transactions, New_blocks)};
+                    false -> {Blocks, Transactions}
                   end,
-      %TODO: update Blocks and heads
-      storage_loop(New_block, Heads,
-                   remove_transactions(Transactions, New_block));
+      storage_loop(Final_blocks, Heads, Final_trans);
     {add_transaction, Transaction} ->
       New_transactions = case check_transection(Blocks,
                                                 Transaction)
@@ -123,7 +119,7 @@ storage_loop(Blocks, Heads, Transactions) ->
                                  {Block_transactions, T_transactions} =
                                  lists:split(10, New_transactions),
                                  spawn(fun () ->
-                                           mine_block({make_ref(),
+                                           mine_block({get_longest_head(Heads),
                                                        Block_transactions})
                                        end),
                                  T_transactions;
@@ -134,18 +130,34 @@ storage_loop(Blocks, Heads, Transactions) ->
       Sender !
       {previous, Nonce, get_block(Blocks, Prev_block_id)},
       storage_loop(Blocks, Heads, Transactions);
+    {request_head, Dest, Nonce} ->
+      Dest ! {head, Nonce},
+      storage_loop(Blocks, Heads, Transactions);
     {get_head, Nonce, Sender} ->
       Sender ! {head, Nonce, get_longest_head(Heads)},
       storage_loop(Blocks, Heads, Transactions)
   end.
 
+
+% This takes a list of nodes and sends a get_head request to every node
+% It returns a list of Nonces
+request_head_all(Nodes) -> request_head_all(Nodes, []).
+
+request_head_all([], Nonces) -> Nonces;
+request_head_all([H | T], Nonces) ->
+  Nonce = make_ref(),
+  H ! {get_head, self(), Nonce},
+  send_all(T, [Nonce | Nonces]).
+
 send_all([], _) -> none;
 send_all([H | T], Data) -> H ! Data, send_all(T, Data).
+
+build_chain([]) -> none.
 
 mine_block({Id, Transactions}) ->
   Solution = proof_of_work:solve(Transactions),
   storage !
-  {add_block_as_head, {Id, Transactions, Solution}}.
+  {add_block, {make_ref(), Id, Transactions, Solution}}.
 
 % Checks if block is new and valid
 check_block(Blocks,
@@ -231,8 +243,7 @@ ask_friend(Nodes) ->
   io:format("I only have ~p friends. Ask a friend "
             "for more friends~n",
             [length(Nodes)]),
-  lists:nth(rand:uniform(length(Nodes)), Nodes) !
-  {get_friends, self(), Ref},
+  lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_friends, self(), Ref},
   {friends, Ref}.
 
 add_nodes([], Nodes) -> Nodes;
