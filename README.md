@@ -1,7 +1,7 @@
 MiniErlangBlockchain: an exercise in Erlang
 ===========================================
 
-Version V0.3
+Version V0.4
 ==============
 
 Chiamiamo NODE un nodo della blockchain.
@@ -58,8 +58,9 @@ Ogni NODE sarà un attore Erlang su un nodo Erlang.
 1. ogni nodo cerca di mantenere sempre una lista di amici
    di lunghezza 3. Quando uno o più amici diventano inacessibili
    chiedete ai rimasti una lista di amici e randomicamente ne
-   scegliete alcuni (diversi da voi!) per tornare a quota 3. In caso perdiate
-   tutti e 3 gli amici chiedete al nodo professore
+   scegliete alcuni (diversi da voi!) per tornare a quota 3. In caso
+   non riusciate a ripristinare i 3 amici chiedendo ai vostri amici
+   potete ricorrere al nodo professore
 2. mantenete l'insieme delle transazioni ancora da includere nei blocchi;
    l'insieme aumenta quando ricevete una push, cala quando includete delle
    transazioni in un blocco che minate oppure quando accettate un blocco
