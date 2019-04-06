@@ -18,86 +18,83 @@ watch(Main, Node) ->
   after 2000 -> Main ! {dead, Node}
   end.
 
-loop(Nodes, Nonces) ->
-  New_nonces = if length(Nodes) == 0 ->
-                    [ask_teacher() | Nonces];
-                  length(Nodes) < 3 -> [ask_friend(Nodes) | Nonces];
-                  true -> Nonces
-               end,
-  receive
+loop(Nodes, Old_nonces) ->
+    Nonces = if length(Nodes) == 0 ->
+                 [ask_teacher() | Old_nonces];
+               length(Nodes) < 3 -> [ask_friend(Nodes) | Old_nonces];
+               true -> Old_nonces
+            end,
+    receive
     {ping, Sender, Ref} ->
-      Sender ! {pong, Ref}, loop(Nodes, New_nonces);
+      Sender ! {pong, Ref}, loop(Nodes, Nonces);
     {get_friends, Sender, Nonce} ->
       New_nodes = add_nodes([Sender], Nodes),
       Sender ! {friends, Nonce, New_nodes},
-      loop(New_nodes, New_nonces);
+      loop(New_nodes, Nonces);
     {friends, Nonce, Incomming_nodes} ->
-      case lists:member({friends, Nonce}, New_nonces) of
+      case lists:member({friends, Nonce}, Nonces) of
         true ->
           New_nodes = add_nodes(Incomming_nodes, Nodes),
+          % If the we didn't get 3 friends ask the teacher for more
+          New_Nonces = case length(New_nodes) < 3 of
+                         true -> sleep(2), [ask_teacher() | Nonces];
+                         false -> Nonces
+                       end,
           io:format("~p nodes discovered~n", [length(New_nodes)]),
-          % ask teacher for more friends if we didn't get enough from a friend
-          New_New_nonces = if length(New_nodes) < 3 ->
-                                [ask_teacher() | New_nonces];
-                              true -> New_nonces
-                           end,
           % Ask all new Nodes for there head
-          This_nonces = request_head_all(Incomming_nodes),
+          This_nonces = request_head_all(Incomming_nodes -- [self()]),
           %We remove the Nonce and we need to add Nonces for each head request
-          loop(New_nodes,
-               [This_nonces | lists:delete({friends, Nonce}, New_New_nonces)]);
+          loop(New_nodes, (This_nonces ++ New_Nonces) -- [{friends, Nonces}]);
         false ->
           io:format("INVALID MESSAGE: We got a wrong nonce "
-                    "with the friends list"),
-          loop(Nodes, New_nonces)
+                    "with for friends~n"),
+          loop(Nodes, Nonces)
       end;
     {dead, Node} ->
       io:format("Dead node ~p~n", [Node]),
-      loop(Nodes -- [Node], New_nonces);
+      loop(Nodes -- [Node], Nonces);
     {get_previous, Sender, Nonce, Prev_block_id} ->
       storage ! {get_previous, Nonce, Sender, Prev_block_id},
-      loop(Nodes, New_nonces);
+      loop(Nodes, Nonces);
     {previous, Nonce, Block} ->
-      case lists:member({previous, Nonce}, New_nonces) of
+      case lists:member({previous, Nonce}, Nonces) of
         true ->
           storage ! {add_previous_block, Block},
-          loop(Nodes,
-               lists:delete({previous, Nonce}, New_nonces));
+          loop(Nodes, Nonces -- [{previous, Nonce}]);
         false ->
           io:format("INVALID MESSAGE: We got a wrong nonce "
-                    "with the friends list"),
-          loop(Nodes, New_nonces)
+                    "with for previous~n"),
+          loop(Nodes, Nonces)
       end;
     {get_head, Sender, Nonce} ->
-      storage ! {get_head, Nonce, Sender},
-      loop(Nodes, New_nonces);
+      storage ! {get_head, Sender, Nonce},
+      loop(Nodes, Nonces);
     {head, Nonce, Block} ->
-      case lists:member({head, Nonce}, New_nonces) of
+      case lists:member({head, Nonce}, Nonces) of
         true ->
           storage ! {add_block, Block},
-          loop(Nodes,
-               lists:delete({previous, Nonce}, New_nonces));
+          loop(Nodes, Nonces -- [{head, Nonce}]);
         false ->
           io:format("INVALID MESSAGE: We got a wrong nonce "
-                    "with the friends list"),
-          loop(Nodes, New_nonces)
+                    "with head~n"),
+          loop(Nodes, Nonces)
       end;
     %Alogritm for gossiping blocks
     {update, Block} ->
-      storage ! {add_block, Block}, loop(Nodes, New_nonces);
+      storage ! {add_block, Block}, loop(Nodes, Nonces);
     %Alogritm for gossiping transections
     {push, Transaction} ->
       storage ! {add_transaction, Transaction},
-      loop(Nodes, New_nonces);
+      loop(Nodes, Nonces);
     %Gossip
     {gossip, Data} ->
-      send_all(Nodes, Data), loop(Nodes, New_nonces);
+      send_all(Nodes, Data), loop(Nodes, Nonces);
     {request_previous, Prev_block_id} ->
       % Ask a random friend for the block 
       Ref = make_ref(),
       lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_previous, self(), Ref, Prev_block_id},
-      loop(Nodes, [Ref | New_nonces])
-  end.
+      loop(Nodes, [Ref | Nonces])
+    end.
 
 storage_loop(Blocks, Heads, Transactions) ->
   receive
@@ -151,7 +148,7 @@ storage_loop(Blocks, Heads, Transactions) ->
       Sender !
       {previous, Nonce, get_block(Blocks, Prev_block_id)},
       storage_loop(Blocks, Heads, Transactions);
-    {get_head, Nonce, Sender} ->
+    {get_head, Sender, Nonce} ->
       Sender ! {head, Nonce, get_longest_head(Heads)},
       storage_loop(Blocks, Heads, Transactions)
   end.
@@ -159,13 +156,11 @@ storage_loop(Blocks, Heads, Transactions) ->
 
 % This takes a list of nodes and sends a get_head request to every node
 % It returns a list of Nonces
-request_head_all(Nodes) -> request_head_all(Nodes, []).
-
-request_head_all([], Nonces) -> Nonces;
-request_head_all([H | T], Nonces) ->
+request_head_all([]) -> [];
+request_head_all([H | T]) ->
   Nonce = make_ref(),
   H ! {get_head, self(), Nonce},
-  request_head_all(T, [Nonce | Nonces]).
+  [{head, Nonce} | request_head_all(T)].
 
 send_all([], _) -> none;
 send_all([H | T], Data) -> H ! Data, send_all(T, Data).
@@ -225,7 +220,8 @@ check_block(Blocks,
       proof_of_work:check({Block_id, List_of_transection},
                           Solution);
     false -> false
-  end.
+  end;
+check_block(_, _) -> io:format("No valid block, maybe empty chain?~n"), false.
 
 is_new_block([], _) -> true;
 is_new_block([{Block_id, _, _, _} | T], Id) ->
