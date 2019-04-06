@@ -3,6 +3,9 @@
 -export([main/0, test/0]).
 
 % This is blockchain node, based on teacher_node.
+% TODO: Add function to lose messages
+% TODO: Clean up Nonces: if we don't get a reply they will survive for all eternity
+% TODO: Clean up heads and blocks
 
 sleep(N) -> receive  after N * 1000 -> ok end.
 
@@ -25,7 +28,7 @@ loop(Nodes, Nonces) ->
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref}, loop(Nodes, New_nonces);
     {get_friends, Sender, Nonce} ->
-      New_nodes = add_nodes(Sender, Nodes),
+      New_nodes = add_nodes([Sender], Nodes),
       Sender ! {friends, Nonce, New_nodes},
       loop(New_nodes, New_nonces);
     {friends, Nonce, Incomming_nodes} ->
@@ -57,7 +60,7 @@ loop(Nodes, Nonces) ->
     {previous, Nonce, Block} ->
       case lists:member({previous, Nonce}, New_nonces) of
         true ->
-          storage ! {add_block, Block},
+          storage ! {add_previous_block, Block},
           loop(Nodes,
                lists:delete({previous, Nonce}, New_nonces));
         false ->
@@ -88,27 +91,45 @@ loop(Nodes, Nonces) ->
       loop(Nodes, New_nonces);
     %Gossip
     {gossip, Data} ->
-      send_all(Nodes, Data), loop(Nodes, New_nonces)
+      send_all(Nodes, Data), loop(Nodes, New_nonces);
+    {request_previous, Prev_block_id} ->
+      % Ask a random friend for the block 
+      Ref = make_ref(),
+      lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_previous, self(), Ref, Prev_block_id},
+      loop(Nodes, [Ref | New_nonces])
   end.
 
 storage_loop(Blocks, Heads, Transactions) ->
   receive
+    {add_head, New_head, Remove_head} ->
+      storage_loop(Blocks, [New_head | Heads -- [Remove_head]], Transactions);
+    {add_previous_block, Block} ->
+      {Final_blocks, Final_trans} = case check_block(Blocks, Block) of
+                                      true ->
+                                        New_blocks = [Block | Blocks],
+                                        % Explore chains with any missing previous block
+                                        explore_all_chains(New_blocks, Heads),
+                                        {New_blocks, remove_transactions(Transactions, New_blocks)};
+                                      false -> {Blocks, Transactions}
+                                    end,
+      storage_loop(Final_blocks, Heads, Final_trans);
     {add_block, Block} ->
       {Final_blocks, Final_trans} = case check_block(Blocks, Block) of
-                    true ->
-                      New_blocks = [Block | Blocks],
-                      %TODO: update Heads and clean up Blocks
-                      jsparber_node ! {gossip, Block},
-                      {New_blocks, remove_transactions(Transactions, New_blocks)};
-                    false -> {Blocks, Transactions}
-                  end,
+                                      true ->
+                                        New_blocks = [Block | Blocks],
+                                        % Explore chain till we find a old head, Block is in this case a head
+                                        explore_chain(New_blocks, Heads, Block),
+                                        jsparber_node ! {gossip, {update, Block}},
+                                        {New_blocks, remove_transactions(Transactions, New_blocks)};
+                                      false -> {Blocks, Transactions}
+                                    end,
       storage_loop(Final_blocks, Heads, Final_trans);
     {add_transaction, Transaction} ->
       New_transactions = case check_transection(Blocks,
                                                 Transaction)
                          of
                            true ->
-                             jsparber_node ! {gossip, Transaction},
+                             jsparber_node ! {gossip, {push, Transaction}},
                              [Transaction | Transactions];
                            false -> Transactions
                          end,
@@ -130,9 +151,6 @@ storage_loop(Blocks, Heads, Transactions) ->
       Sender !
       {previous, Nonce, get_block(Blocks, Prev_block_id)},
       storage_loop(Blocks, Heads, Transactions);
-    {request_head, Dest, Nonce} ->
-      Dest ! {head, Nonce},
-      storage_loop(Blocks, Heads, Transactions);
     {get_head, Nonce, Sender} ->
       Sender ! {head, Nonce, get_longest_head(Heads)},
       storage_loop(Blocks, Heads, Transactions)
@@ -147,12 +165,52 @@ request_head_all([], Nonces) -> Nonces;
 request_head_all([H | T], Nonces) ->
   Nonce = make_ref(),
   H ! {get_head, self(), Nonce},
-  send_all(T, [Nonce | Nonces]).
+  request_head_all(T, [Nonce | Nonces]).
 
 send_all([], _) -> none;
 send_all([H | T], Data) -> H ! Data, send_all(T, Data).
 
-build_chain([]) -> none.
+% Explore every chain to check if we got all blocks now
+explore_all_chains(_, []) -> none;
+explore_all_chains(Blocks, [{Head_id, Length} | T]) ->
+  % Explore onyl heads with missing blocks (where we couldn't get the length)
+  case Length == 0 of
+    true ->
+      % we can ignore the head we are exploring right now
+      explore_chain(Blocks, T, get_block_by_id(Blocks, Head_id));
+    false -> none
+  end,
+  explore_all_chains(Blocks, T).
+
+% Takes 3 arguments Blocks, Heads and new Head
+explore_chain(Blocks, Heads, {Head_id, Prev_head_id, _, _}) ->
+  explore_chain(Blocks, Heads, Head_id, Prev_head_id, 0).
+
+% In case we don't have the explored chain at all (we are hiting none)
+explore_chain(_, _, Head_to_insert, none, Depth) ->
+  storage ! {add_head, {Head_to_insert, Depth}, []};
+
+explore_chain(Blocks, Heads, Head_to_insert, Prev_head_id, Depth) ->
+  case lists:keyfind(Prev_head_id, 1, Heads) of
+    {_, Length} ->
+      %send new head to storage and the head to replace
+      storage ! {add_head, {Head_to_insert, Depth + Length}, Prev_head_id};
+    false ->
+      case get_block_by_id(Blocks, Prev_head_id) of 
+        % We could remove this block form the Blocks list
+        % I'm not sure if that would imporve performance
+        {_, Prev_block_id, _, _} ->
+          explore_chain(Blocks, Heads, Head_to_insert, Prev_block_id, Depth + 1);
+        false ->
+          io:format("Need to request block"),
+          %request block
+          storage ! {add_head, {Head_to_insert, 0}, []},
+          jsparber_node ! {request_previous, Prev_head_id}
+      end
+  end.
+
+get_block_by_id(Blocks, Id) ->
+  lists:keyfind(Id, 2, Blocks).
 
 mine_block({Id, Transactions}) ->
   Solution = proof_of_work:solve(Transactions),
