@@ -94,6 +94,13 @@ loop(Nodes, Old_nonces) ->
       Ref = make_ref(),
       lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_previous, self(), Ref, Prev_block_id},
       loop(Nodes, [Ref | Nonces])
+    after 2000 ->
+          New_nonces = if length(Nodes) == 0 ->
+                 [ask_teacher() | Nonces];
+               length(Nodes) < 3 -> [ask_friend(Nodes) | Nonces];
+               true -> Nonces
+          end,
+          loop(Nodes, New_nonces)
     end.
 
 storage_loop(Blocks, Heads, Transactions) ->
@@ -122,16 +129,20 @@ storage_loop(Blocks, Heads, Transactions) ->
                                     end,
       storage_loop(Final_blocks, Heads, Final_trans);
     {add_transaction, Transaction} ->
+      io:format("Transection: ~p~n", [Transaction]),
+      case lists:member(Transaction, Transactions) of 
+        false ->
       New_transactions = case check_transection(Blocks,
                                                 Transaction)
                          of
                            true ->
+                             io:format("Send transaction"),
                              jsparber_node ! {gossip, {push, Transaction}},
                              [Transaction | Transactions];
                            false -> Transactions
                          end,
       Remaing_transactions = case
-                               lists:length(New_transactions) > 9
+                               length(New_transactions) > 9
                              of
                                true ->
                                  {Block_transactions, T_transactions} =
@@ -144,6 +155,8 @@ storage_loop(Blocks, Heads, Transactions) ->
                                false -> New_transactions
                              end,
       storage_loop(Blocks, Heads, Remaing_transactions);
+        true -> storage_loop(Blocks, Heads, Transactions)
+      end;
     {get_previous, Nonce, Sender, Prev_block_id} ->
       Sender !
       {previous, Nonce, get_block(Blocks, Prev_block_id)},
@@ -208,7 +221,7 @@ get_block_by_id(Blocks, Id) ->
   lists:keyfind(Id, 2, Blocks).
 
 mine_block({Id, Transactions}) ->
-  Solution = proof_of_work:solve(Transactions),
+  Solution = proof_of_work:solve(Id, Transactions),
   storage !
   {add_block, {make_ref(), Id, Transactions, Solution}}.
 
@@ -233,15 +246,10 @@ is_new_block([{Block_id, _, _, _} | T], Id) ->
 check_transection([], _) -> true;
 check_transection([{_, _, List_of_transection, _} | T],
                   {Trans_id, Payload}) ->
-  case is_new_transection(List_of_transection, Trans_id)
-  of
-    true -> check_transection(T, {Trans_id, Payload});
-    false -> false
+  case lists:keyfind(Trans_id, 1, List_of_transection) of
+    false -> check_transection(T, {Trans_id, Payload});
+    _ -> true
   end.
-
-is_new_transection([], _) -> true;
-is_new_transection([{Trans_id, _} | T], Id) ->
-  (Trans_id /= Id) and is_new_transection(T, Id).
 
 remove_transactions([], _) -> [];
 remove_transactions([H | T],
@@ -324,4 +332,12 @@ main() ->
 
 %%%%%%%%%%%%%%%% Testing only, do not use! %%%%%%%%%%%%%%%%%%%%
 
-test() -> spawn(fun main/0).
+test_transaction() ->
+  jsparber_node ! {push, {make_ref(), "Some random data"}}.
+
+test() ->
+  spawn(fun main/0),
+  sleep(2),
+  test_transaction(),
+  sleep(2),
+  test_transaction().
