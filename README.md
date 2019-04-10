@@ -1,8 +1,8 @@
 MiniErlangBlockchain: an exercise in Erlang
 ===========================================
 
-Version V0.4
-==============
+Version V0.5
+============
 
 Chiamiamo NODE un nodo della blockchain.
 Ogni NODE sarà un attore Erlang su un nodo Erlang.
@@ -33,19 +33,19 @@ Ogni NODE sarà un attore Erlang su un nodo Erlang.
   verificata tramite proof_of_work:check({IDblocco_precedente,Lista_di_transazioni}, Soluzione)
 
 ## Algoritmo di gossiping per i blocchi
- - {update, Blocco}
+ - {update, Sender, Blocco}
    * se non lo conoscevate già:
      * verificate che il blocco sia corretto usando proof_of_work:check(...)
      * lo ritrasmettete ai vostri amici
      * fate update della vostra visione della catena, eventualmente usando
-       l'algoritmo di ricostruzione della catena e decidendo quale è la catena
-       più lunga
+       l'algoritmo di ricostruzione della catena (chiedendo al Sender o agli amici) e
+       decidendo quale è la catena più lunga
 
 ## Algoritmo di ricostruzione della catena
   da chiamarsi quando vi arriva un update e non conoscete il blocco precedente, per esempio se vi siete
   appena connessi alla blockchain:
  - {get_previous, Mittente, Nonce, Idblocco_precedente}
-   rispodente con  Mittente ! {previous, Nonce, Blocco}
+   rispondete con  Mittente ! {previous, Nonce, Blocco} non appena lo conoscete
  - {get_head, Mittente, Nonce}
    rispondete con Mittente ! {head, Nonce, Blocco} che è la cima dello stack (più
    lungo)
