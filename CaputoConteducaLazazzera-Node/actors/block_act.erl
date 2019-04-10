@@ -47,8 +47,8 @@ compute(PidRoot, PidMiner,Catena,ListT) ->
             % Check: se la catena è vuota
             ID_blocco_prev = case length(Catena) > 0 of
                 true -> 
-                    [{_,IDPrev,_,_}|_] = Catena,
-                    IDPrev;
+                    [{ID,_,_,_}|_] = Catena,
+                    ID;
                 false -> none
             end,
             
@@ -118,7 +118,7 @@ verifyCatena(Catena, FriendsList, FriendsListToAsk, CatenaB) ->
     {_,ID_prev_block,_,_} = B, %pattern matching per prendere l'id del blocco precedente al blocco corrente
     {ID_head,_,_,_} = Head,
     IdsBlocksInCatena = lists:map(fun(A)->{X,_,_,_}=A, X end,Catena),
-    io:format("~p: id prev amico    ~p: our id ~n",[ID_prev_block, ID_head]),
+    % io:format("~p: id prev amico    ~p: our id ~n",[ID_prev_block, ID_head]),
     case lists:member(ID_prev_block, IdsBlocksInCatena) of
         true -> % caso in cui il precedente del blocco(con relativi eventuali blocchi annessi) che dovrei aggiungere si trova nella mia lista
             case ID_prev_block =:= ID_head of
