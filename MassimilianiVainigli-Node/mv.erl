@@ -3,7 +3,7 @@
 %%%-------------------------------------------------------------------
 -module(mv).
 -author("Lorenzo Massimiliani, Lorenzo Vainigli").
--export([watch/2, check_nodes/2, main_node/0, test/0]).
+-export([watch/2, check_nodes/2, main_node/0, test/0, test_manager/0]).
 
 
 sleep(N) -> receive after N*1000 -> ok end.
@@ -119,6 +119,68 @@ add_friends(List1, List2, Parent) ->
   end.
 
 
+% gestisce i blocchi
+% Transazione := {IDTransazione, Payload}
+% Blocco = {IDnuovo_blocco,IDblocco_precedente, Lista_di_transazioni, Soluzione}
+manager(List_friends, List_blocks, Not_inserted_transactions) ->
+  receive
+
+    {push, Transazione} ->
+      io:format("Ricevuto push di transazione ~p~n",[Transazione]),
+      AllTransactions = lists:map(fun(Block) -> element(3, Block) end, List_blocks),
+      IsTransactionKnown = lists:any(fun(E) -> E == Transazione end, AllTransactions),
+      if
+        IsTransactionKnown ->
+          io:format("La transazione è conosciuta ~n"),
+          ok;
+        true ->
+          % La transazione è sconusciuta
+          io:format("La transazione è sconosciuta, la invio agli amici ~n"),
+          [Friend ! {push, Transazione} || Friend <- List_friends],
+          manager(List_friends, List_blocks, Not_inserted_transactions ++ [Transazione])
+      end;
+
+    {update, Sender, Blocco} ->
+      IsBlockKnown = lists:any(fun(E) -> E == Blocco end, List_blocks),
+      if
+        IsBlockKnown -> ok;
+        true ->
+          IDblocco_precedente = element(2, Blocco),
+          Lista_di_transazioni = element(3, Blocco),
+          Soluzione = proof_of_work:solve({IDblocco_precedente,Lista_di_transazioni}),
+          Correct = proof_of_work:check({IDblocco_precedente, Lista_di_transazioni}, Soluzione),
+          if
+            Correct -> List_friends ! {update, self(), Blocco}
+          end
+      end,
+      manager(List_friends, List_blocks, Not_inserted_transactions);
+
+    {get_previous, Mittente, Nonce, Idblocco_precedente} ->
+      Blocco = lists:filter(fun (Blocco) -> element(2, Blocco) == Idblocco_precedente end, List_blocks),
+      Mittente ! {previous, Nonce, Blocco};
+
+    {get_head, Mittente, Nonce} ->
+      [Blocco | _] = List_blocks,
+      Mittente ! {head, Nonce, Blocco}
+
+  end.
+
+% To test M = mv:test_manager().
+test_manager() ->
+  M = spawn(fun() -> manager([], [], []) end),
+  M.
+
+% il 10% dei messaggi viene perso e un altro 10% viene inviato in doppia copia
+send_msg(Receiver, Message) ->
+  Rand = rand:uniform(10),
+  if
+    Rand =/= 0 andalso Rand =/= 1 -> Receiver ! {Message}
+  end,
+  if
+    Rand == 1 ->
+      Receiver ! {Message},
+      Receiver ! {Message}
+  end.
 
 
 %% nodo principale
