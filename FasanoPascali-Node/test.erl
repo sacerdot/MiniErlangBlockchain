@@ -15,9 +15,10 @@ watch(Main, Node) ->
   sleep(10),
   Ref = make_ref(),
   Node ! {ping, self(), Ref},
+  io:format("ping da ~p a ~p~n", [self(),Node]),
   receive
     {pong, Ref} -> watch(Main, Node)
-  after 2000 -> Main ! {dead, Node, self()}
+  after 2000 -> Main ! {dead, Node}
   end.
 
 
@@ -36,23 +37,25 @@ init() ->
   start([]).
 
 start(Friends) ->
+  PID=self(),
   receive
     {friends, Nonce, ListFriends} ->
-      io:format("friend receive ~p ~p~n", [self(),Nonce]),
-      NewFriends = ext3Friends(ListFriends, [self()] ++ Friends, Friends),
-      [spawn(fun() -> watch(self(), X) end) || X <- NewFriends],
+      io:format("friend receive ~p ~p~n", [PID,Nonce]),
+      NewFriends = ext3Friends(ListFriends, Friends++[PID], Friends),
+      [spawn(fun() -> watch(PID, X) end) || X <- NewFriends],
 %%      io:format("List3Friends~p~p      ~n", [self(),NewFriends]),
       NewListFriends = Friends ++ NewFriends,
-      spawn(test, getNewFriends, [NewListFriends, self()]),
+      io:format("friend receive ~p ~p~n", [PID,length(NewListFriends)]),
+      spawn(test, getNewFriends, [NewListFriends, PID]),
       start(NewListFriends);
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref};
     {get_friends, Sender, Nonce} ->
       Sender ! {friends, make_ref(), Friends};
-    {dead, Node, PID} ->
-      exit(PID, kill),
+    {dead, Node} ->
+      io:format("Dead node ~p, da ~p~n",[Node, PID]),
       FriendsLess = Friends -- [Node],
-      spawn(test, getNewFriends, [FriendsLess, self()]),
+      spawn(test, getNewFriends, [FriendsLess, PID]),
       start(FriendsLess)
   end,
   start(Friends).
@@ -62,13 +65,13 @@ ext3Friends(ListFriends, MyListFriends, InitFriends) ->  %%  when ListFriends=:=
   FilterListFriends = lists:filter(fun(Elem) -> not lists:member(Elem, MyListFriends) end, ListFriends),
   LfilterFriends = length(FilterListFriends),
   if
-    LfilterFriends < 1 -> lists:sublist(MyListFriends, length(MyListFriends) - 1);
+    LfilterFriends < 1 -> lists:sublist(MyListFriends, length(MyListFriends) - 1)-- InitFriends;
     true ->
       R = rand:uniform(length(FilterListFriends)),
       Llist3Friends = length(MyListFriends) - 1,
       if
         Llist3Friends < 3 -> ext3Friends(FilterListFriends, [lists:nth(R, FilterListFriends)] ++ MyListFriends, InitFriends);
-        true -> lists:sublist(MyListFriends, length(MyListFriends) - 1) -- InitFriends
+        true -> lists:sublist(MyListFriends, length(MyListFriends)-1) -- InitFriends
       end
   end.
 
@@ -89,4 +92,4 @@ getNewFriends(Friends, PID) -> %%manca sleep quindi chiede iterativamente sempre
   end.
 
 
-%% c(test). test:test().  test:start().
+%% c(test). test:test().  test:start(). exit(<0.71.0>, kill).
