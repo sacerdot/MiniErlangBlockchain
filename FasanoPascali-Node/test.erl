@@ -26,19 +26,21 @@ test() ->
   spawn(teacher_node, main, []),
   sleep(3),
   spawn(test, init, []),
-%%  spawn(test, init, []),
+  spawn(test, init, []),
   spawn(test, init, []),
   spawn(test, init, [])
 .
 
 init() ->
 %%      chiedo amici
+  PID = self(),
   NonceGlobalSend = make_ref(),
   global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
   self() ! {updateNonce, NonceGlobalSend},
-  start([], [], [], [], 1).
+  GetFriend = spawn(test, getNewFriends, [[], PID, 1]),
+  start([], [], [], [], GetFriend).
 
-start(Friends, ListTransazioni, BlockChain, ListNonce, Step) ->
+start(Friends, ListTransazioni, BlockChain, ListNonce, PIDGetFriend) ->
   PID = self(),
   receive
     {friends, Nonce, ListFriends} ->
@@ -48,10 +50,10 @@ start(Friends, ListTransazioni, BlockChain, ListNonce, Step) ->
 %%      io:format("List3Friends~p~p      ~n", [self(),NewFriends]),
       NewListFriends = Friends ++ NewFriends,
       if
-        length(NewListFriends)>2 -> ok;
-        true ->spawn(test, getNewFriends, [NewListFriends, PID, Step])
+        length(NewListFriends) >= 3 -> ok;
+        true -> PIDGetFriend ! {friend, NewListFriends}
       end,
-      start(NewListFriends, ListTransazioni, BlockChain, ListNonce, Step);
+      start(NewListFriends, ListTransazioni, BlockChain, ListNonce, PIDGetFriend);
 
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref};
@@ -60,7 +62,7 @@ start(Friends, ListTransazioni, BlockChain, ListNonce, Step) ->
       case lists:member(Transazione, ListTransazioni) of
         true -> [X ! {push, Transazione} || X <- Friends],
           NewListTransazioni = ListTransazioni ++ [Transazione],
-          start(Friends, NewListTransazioni, BlockChain, ListNonce, Step)
+          start(Friends, NewListTransazioni, BlockChain, ListNonce, PIDGetFriend)
       end;
 
     {get_friends, Sender, Nonce} ->
@@ -71,16 +73,13 @@ start(Friends, ListTransazioni, BlockChain, ListNonce, Step) ->
     {dead, Node} ->
       io:format("Dead node ~p, da ~p~n", [Node, PID]),
       FriendsLess = Friends -- [Node],
-      spawn(test, getNewFriends, [FriendsLess, PID, Step]),
-      start(FriendsLess, ListTransazioni, BlockChain, ListNonce, Step);
+      PIDGetFriend ! {friend, FriendsLess},
+      start(FriendsLess, ListTransazioni, BlockChain, ListNonce, PIDGetFriend);
 
     {updateNonce, Nonce} ->
-      start(Friends, ListTransazioni, BlockChain, ListNonce ++ [Nonce], Step);
-
-    {updateStep, NewStep} ->
-      start(Friends, ListTransazioni, BlockChain, ListNonce, NewStep)
+      start(Friends, ListTransazioni, BlockChain, ListNonce ++ [Nonce], PIDGetFriend)
   end,
-  start(Friends, ListTransazioni, BlockChain, ListNonce, Step).
+  start(Friends, ListTransazioni, BlockChain, ListNonce, PIDGetFriend).
 
 %% InitFriends è inserito per evitare di spawn nodi monitor già esistenti
 ext3Friends(ListFriends, MyListFriends, InitFriends) ->  %%  when ListFriends=:= _:_
@@ -98,35 +97,47 @@ ext3Friends(ListFriends, MyListFriends, InitFriends) ->  %%  when ListFriends=:=
       end
   end.
 
-getNewFriends(Friends, PID, Step) -> %%manca sleep quindi chiede iterativamente sempre
-%%  todo sleep prima di provare a parlare col prof
-%% todo  esaurire le richieste agli amici
-  case Step of
-    2 -> TempNonce = make_ref(),
-      PID ! {updateNonce, TempNonce},
-      global:send(teacher_node, {get_friends, PID, TempNonce}),
-      PID ! {step, 0};
-    1 -> sleep(10),
-      PID ! {step, 2};
-    _ -> ok
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%  todo gestire casisitica 2 amici
+getNewFriends(Friends, PID, Step) ->
+  if
+    Step == 3 ->
+      sendGetFriends(PID, global);
+    true ->
+      case length(Friends) of
+        0 -> sendGetFriends(PID, global);
+        1 -> sendGetFriends(PID, lists:nth(1, Friends));
+        2 -> sendGetFriends(PID, lists:nth(2, Friends));%%, sendGetFriends(PID, lists:nth(2, Friends))
+        _ -> ok
+      end
   end,
-  case length(Friends) of
-    0 ->
-      Nonce = make_ref(),
-      PID ! {step, 0},
-      PID ! {updateNonce, Nonce},
-      global:send(teacher_node, {get_friends, PID, Nonce});
-    1 -> sendGetFriends(PID, lists:nth(1, Friends));
-    2 -> sendGetFriends(PID, lists:nth(1, Friends));%%, sendGetFriends(PID, lists:nth(2, Friends))
-    _ -> PID ! {step, 0},
-      exit(self(), kill)
+%% 3 step finale
+%%  2 step 2 richeste amici
+  case Step of
+    2 -> receive
+           {friend, NewFriends} -> getNewFriends(NewFriends, PID, 3)
+         after 10000 -> getNewFriends(Friends, PID, 0)
+         end;
+    1 -> receive
+           {friend, NewFriends} -> sleep(5), getNewFriends(NewFriends, PID, 2)
+         after 10000 -> getNewFriends(Friends, PID, 0)
+         end;
+    _ -> receive
+           {friend, NewFriends} -> getNewFriends(NewFriends, PID, 1)
+         end
   end.
 
-sendGetFriends(Main, Friend) ->
-  Nonce = make_ref(),
-  Main ! {step, 1},
-  Main ! {updateNonce, Nonce},
-  Friend ! {get_friends, Main, Nonce}
-.
+sendGetFriends(Main, Receive) ->
+  TempNonce = make_ref(),
+  Main ! {updateNonce, TempNonce},
+  if
+    Receive == global -> global:send(teacher_node, {get_friends, Main, TempNonce});
+    true -> Receive ! {get_friends, Main, TempNonce}
+  end.
+
+
+
 
 %% c(test). test:test().  test:start(). exit(<0.71.0>, kill). spawn(test, init, []).
