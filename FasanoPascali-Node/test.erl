@@ -140,4 +140,17 @@ sendGetFriends(Main, Receive) ->
 
 
 
+sendMaybeWrongMessages(PidRecevier, Message, IsErrorActivated) ->
+  if
+    IsErrorActivated == false ->
+      PidRecevier ! Message;
+    true ->
+      RandomNumber = rand:uniform(10),
+      case RandomNumber of
+        1 -> do_nothing;
+        2 -> PidRecevier ! Message, PidRecevier ! Message;
+        _ -> PidRecevier ! Message
+      end
+  end.
+
 %% c(test). test:test().  test:start(). exit(<0.71.0>, kill). spawn(test, init, []).
