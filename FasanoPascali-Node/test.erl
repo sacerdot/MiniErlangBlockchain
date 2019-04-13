@@ -58,17 +58,15 @@ start(Friends, ListTransazioni, BlockChain, ListNonce, PIDGetFriend) ->
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref};
 
-    {push, Transazione} ->
+    {push, Transazione} when Transazione == {_,_} ->
       case lists:member(Transazione, ListTransazioni) of
-        true -> [X ! {push, Transazione} || X <- Friends],
+        false -> [X ! {push, Transazione} || X <- Friends],
           NewListTransazioni = ListTransazioni ++ [Transazione],
           start(Friends, NewListTransazioni, BlockChain, ListNonce, PIDGetFriend)
       end;
 
     {get_friends, Sender, Nonce} ->
-      TempNonce = make_ref(),
-      PID ! {updateNonce, TempNonce},
-      Sender ! {friends, TempNonce, Friends};
+      Sender ! {friends, Nonce, Friends};
 
     {dead, Node} ->
       io:format("Dead node ~p, da ~p~n", [Node, PID]),
