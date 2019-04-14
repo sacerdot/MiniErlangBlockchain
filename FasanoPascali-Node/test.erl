@@ -1,5 +1,5 @@
 -module(test).
--export([test/0, init/0, loopMain/4, newFriendsRequest/3, managerNonce/2, extractNewFriends/3]).
+-export([test/0, init/0, loopMain/4, newFriendsRequest/4, managerNonce/2, extractNewFriends/3]).
 
 % This is the teacher node, the one responsible
 % for letting new nodes in the blockchain.
@@ -25,8 +25,8 @@ watch(Main, Node) ->
 test() ->
   spawn(teacher_node, main, []),
   sleep(3),
-  spawn(test, init, []),
-  spawn(test, init, []),
+%%  spawn(test, init, []),
+%%  spawn(test, init, []),
   spawn(test, init, []),
   spawn(test, init, [])
 .
@@ -36,30 +36,30 @@ init() ->
   PID = self(),
   NonceGlobalSend = make_ref(),
   global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
-  self() ! {updateNonce, NonceGlobalSend},
-  ManagerFriends = spawn(test, newFriendsRequest, [[], PID, 1]),
-  ManagerNonce = spawn(test, managerNonce, [[], PID]),
+  ManagerNonce = spawn_link(test, managerNonce, [[], PID]),
+  ManagerFriends = spawn_link(test, newFriendsRequest, [[], PID, 0, ManagerNonce]),
+  receive
+    {friends, NonceGlobalSend, ListFriends} ->
+      ManagerFriends ! {friend, ListFriends}
+  end,
   loopMain([], [], ManagerFriends, ManagerNonce).
 
 
-%% todo testare
 loopMain(ListTransazioni, BlockChain, PIDManagerFriends, PIDManagerNonce) ->
-  PID = self(),
-
+%%  PID = self(),
   receive
     {friends, Nonce, ListFriends} ->
       PIDManagerNonce ! {checkNonce, Nonce},
       receive
         {nonce, false} -> loopMain(ListTransazioni, BlockChain, PIDManagerFriends, PIDManagerNonce);
         {nonce, ok} ->
-          PIDManagerFriends ! {friend, ListFriends},
-          io:format("friend receive ~p ~p~n", [PID, Nonce])
+          PIDManagerFriends ! {friend, ListFriends}
       end;
 
-    {push, Transazione} when Transazione == {_, _} ->
-      case lists:member(Transazione, ListTransazioni) of
-        false -> PIDManagerFriends ! {gossiping_transazione, Transazione},
-          NewListTransazioni = ListTransazioni ++ [Transazione],
+    {push, Transaction} ->%%when Transaction == {_, _} ->
+      case lists:member(Transaction, ListTransazioni) of
+        false -> PIDManagerFriends ! {gossipingTransaction, Transaction},
+          NewListTransazioni = ListTransazioni ++ [Transaction],
           loopMain(NewListTransazioni, BlockChain, PIDManagerFriends, PIDManagerNonce)
       end;
 
@@ -72,18 +72,20 @@ loopMain(ListTransazioni, BlockChain, PIDManagerFriends, PIDManagerNonce) ->
   loopMain(ListTransazioni, BlockChain, PIDManagerFriends, PIDManagerNonce).
 
 
-
 %% gestisce lo storage dei Nonce e il loro controllo
 managerNonce(ListNonce, PIDMain) ->
   receive
     {updateNonce, Nonce} ->
+      io:format("~p -> updateNonce Nonce ~p~n", [PIDMain, Nonce]),
       managerNonce(ListNonce ++ [Nonce], PIDMain);
     {checkNonce, Nonce} ->
       case lists:member(Nonce, ListNonce) of
         true ->
+          io:format("~p -> checkNonce Nonce ~p OK ++++++++++->~n", [PIDMain, Nonce]),
           PIDMain ! {nonce, ok},
           managerNonce(ListNonce--[Nonce], PIDMain);
         false ->
+          io:format("~p -> checkNonce Nonce ~p False -------->~n", [PIDMain, Nonce]),
           PIDMain ! {nonce, false},
           managerNonce(ListNonce, PIDMain)
       end
@@ -108,51 +110,68 @@ extractNewFriends(ListFriends, MyListFriends, InitFriends) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Step: 0-> Skip; 1-> 1° richiesta; 2-> 2° richiesta sleep; 3-> chiedo al nodo prof.
-%% todo testare
-newFriendsRequest(Friends, PIDMain, Step) ->
+%%  todo gestire casisitica 2 amici
+newFriendsRequest(Friends, PIDMain, Step, ManagerNonce) ->
+  io:format("~p ->Start newFriendsRequest Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
   MyPid = self(),
   case Step of
     0 -> ok; %% Skip
-    3 -> sendGetFriends(PIDMain, global); %% richiesta verso il nodo prof
+    3 -> sendGetFriends(PIDMain, global, ManagerNonce); %% richiesta verso il nodo prof
     _ -> %% caso 1 e 2 ovvero 1° e 2° richiesta verso i miei amici
       if
-        Step == 2 -> sleep(10);
+        Step == 2 -> sleep(20);
         true -> ok
       end,
-%%  todo gestire casisitica 2 amici
       case length(Friends) of
-        0 -> sendGetFriends(PIDMain, global);
-        1 -> sendGetFriends(PIDMain, lists:nth(1, Friends));
-        2 -> sendGetFriends(PIDMain, lists:nth(2, Friends));%%, sendGetFriends(PID, lists:nth(2, Friends))
+        0 -> sendGetFriends(PIDMain, global, ManagerNonce);
+        1 -> sendGetFriends(PIDMain, lists:nth(1, Friends), ManagerNonce);
+        2 -> RandomNumber = rand:uniform(2),
+          sendGetFriends(PIDMain, lists:nth(RandomNumber, Friends), ManagerNonce);%%, sendGetFriends(PID, lists:nth(2, Friends), ManagerNonce)
         _ -> ok
       end
   end,
   receive
     {friend, ListFriends} ->
+      io:format("~p -> Friend receive Friends: ~p Step: ~p~n", [PIDMain, ListFriends, Step]),
       NewFriends = extractNewFriends(ListFriends, Friends ++ [PIDMain], Friends),
       [spawn(fun() -> watch(MyPid, X) end) || X <- NewFriends],
       NewListFriends = Friends ++ NewFriends,
       if
-        length(NewListFriends) >= 3 -> newFriendsRequest(NewListFriends, PIDMain, 0);
-        Step == 3 -> newFriendsRequest(NewListFriends, PIDMain, 1);
-        true -> newFriendsRequest(NewListFriends, PIDMain, Step + 1)
+        length(NewListFriends) >= 3 ->
+          io:format("~p ->+++++ 1 ~p ~p~n", [PIDMain, Step, length(NewListFriends)]),
+          newFriendsRequest(NewListFriends, PIDMain, 0, ManagerNonce);
+        Step == 3 ->
+          io:format("~p ->+++++ 2 ~p~n", [PIDMain, Step]),
+          newFriendsRequest(NewListFriends, PIDMain, 1, ManagerNonce);
+        true ->
+          io:format("~p ->++++++ 3 ~p~n", [PIDMain, Step]),
+          newFriendsRequest(NewListFriends, PIDMain, Step + 1, ManagerNonce)
       end;
+
     {dead, Node} ->
-      io:format("Dead node ~p~n", [Node]),
+      io:format("~p -> Dead node ~p~n", [PIDMain, Node]),
       FriendsLess = Friends -- [Node],
-      newFriendsRequest(FriendsLess, PIDMain, 0);
+      newFriendsRequest(FriendsLess, PIDMain, 1, ManagerNonce);
+
     {get_friends, Sender, Nonce} ->
+      io:format("~p -> get_friends from node ~p~n", [PIDMain, Sender]),
       Sender ! {friends, Nonce, Friends};
-    {gossiping_transazione, Transazione} ->
-      [X ! {push, Transazione} || X <- Friends]
+
+    {gossipingTransaction, Transaction} ->
+      io:format("~p -> gossipingTransaction : transaction ~p~n", [PIDMain, Transaction]),
+      [X ! {push, Transaction} || X <- Friends]
+  end,
+  if
+    length(Friends) >= 3 -> newFriendsRequest(Friends, PIDMain, 0, ManagerNonce);
+    true -> newFriendsRequest(Friends, PIDMain, Step, ManagerNonce)
   end.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-sendGetFriends(Main, Receive) ->
+sendGetFriends(Main, Receive, ManagerNonce) ->
   TempNonce = make_ref(),
-  Main ! {updateNonce, TempNonce},
+  ManagerNonce ! {updateNonce, TempNonce},
   if
     Receive == global -> global:send(teacher_node, {get_friends, Main, TempNonce});
     true -> Receive ! {get_friends, Main, TempNonce}
@@ -175,3 +194,7 @@ sendMaybeWrongMessages(PidRecevier, Message, IsErrorActivated) ->
   end.
 
 %% c(test). test:test().  exit(<0.71.0>, kill). spawn(test, init, []).
+%% exit(<0.68.0>, kill).
+%% exit(<0.69.0>, kill).
+%% exit(<0.70.0>, kill).
+%% spawn(test, init, []).
