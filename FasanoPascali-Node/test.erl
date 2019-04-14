@@ -110,7 +110,7 @@ extractNewFriends(ListFriends, MyListFriends, InitFriends) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Step: 0-> Skip; 1-> 1° richiesta; 2-> 2° richiesta sleep; 3-> chiedo al nodo prof.
-%%  todo gestire casisitica 2 amici
+%%  todo gestire casisitica 2 Friends
 newFriendsRequest(Friends, PIDMain, Step, ManagerNonce) ->
   io:format("~p ->Start newFriendsRequest Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
   MyPid = self(),
