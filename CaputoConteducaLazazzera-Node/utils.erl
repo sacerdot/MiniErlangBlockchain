@@ -4,7 +4,7 @@
 
 
 sendMessage(Dest,Message) ->
-    X = rand:uniform(?RANDOM),
+    X = rand:uniform(?RANDOM), 
     case X of
         2 ->
             Dest ! Message,
