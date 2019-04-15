@@ -6,6 +6,7 @@
 % TODO: Add function to lose messages
 % TODO: Clean up heads and blocks
 % TODO: Maintain a friends list of exactly 3 nodes
+% TODO: Make teacher_node a variable
 
 sleep(N) -> receive  after N * 1000 -> ok end.
 
@@ -56,7 +57,7 @@ loop(Nodes, Old_nonces) ->
     {request_friends, Teacher} ->
       New_nonces = case length(Nodes) < 3 of
                      true ->
-                       case Teacher or length(Nodes)  == 0 of
+                       case Teacher or (length(Nodes)  == 0) of
                          true -> nonces_cleaner(self(), [ask_teacher(self())]) ++ Nonces;
                          false -> nonces_cleaner(self(), [ask_friend(self(), Nodes)]) ++ Nonces
                        end;
