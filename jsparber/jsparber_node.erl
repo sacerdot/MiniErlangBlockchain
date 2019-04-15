@@ -5,6 +5,7 @@
 % This is blockchain node, based on teacher_node.
 % TODO: Add function to lose messages
 % TODO: Clean up heads and blocks
+% TODO: Maintain a friends list of exactly 3 nodes
 
 sleep(N) -> receive  after N * 1000 -> ok end.
 
