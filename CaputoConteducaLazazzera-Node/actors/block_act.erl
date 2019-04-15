@@ -1,177 +1,199 @@
 -module(block_act).
 -import (miner_act , [start_M_act/2]).
--import (proof_of_work , [solve/1,check/2]).
+-import (chain_tools , [buildInitChain/1,reconstructing/3,searchBlock/2,checkBlock/1]).
+-import (block_gossiping_act , [blockGossiping/4,test/0]).
 -export([start_B_act/1]).
--on_load(load_module_act/0).
 
-load_module_act() ->
-    compile:file('proof_of_work.erl'), 
-    compile:file('actors/miner_act.erl'), 
-    ok. 
+% TODO : CHIEDERE A SENDER O AMICI IL BLOCCO PRECEDENTE
 
-%%%%%%%%  behavior dell'attore che costruisce i blocchi %%%%%%%%
-% Blocco = {ID_Blocco, ID_Prev, Lista_transazioni, Soluzione}
+%! behavior dell'attore che ricostruisce la catena e la notifica a PidB
+chainRestore(PidB,Chain) -> 
+    %? Caso 0 (EASY):
+    %?     Chain è vuota. Inserisco il Blocco direttamente
 
-% Ricerca Blocco tramite ID
-searchBlock(ID,[{ID_Blocco,none,Lista_transazioni,Soluzione}]) -> 
-    case ID =:= ID_Blocco of
-        true -> [{ID_Blocco,none,Lista_transazioni, Soluzione}];
-        false -> none
-    end;
-searchBlock(ID,[H | T]) -> 
-    {ID_Blocco, _, _, _} = H,
-    case ID =:= ID_Blocco of
-        true -> H;
-        false -> 
-            searchBlock(ID,T)
-    end.
-    
-% Index = 1 inizialmente
-indexBlock(B,[H|T], Index) ->
-    case B =:= H of
-        true -> Index;
-        false -> indexBlock(B,T,Index+1)
-    end.
+    %? Caso 1 (EASY):
+    %?     Blocco va inserito in cima alla mia catena --> ottimo
+    %?     ID_Prev di Blocco è la testa di Chain 
 
+    %? Caso 2 (SUPER-EASY):
+    %?     ID_Prev di Blocco non è la testa ma un blocco più 
+    %?     vecchio della catena --> lo scarto
 
-% getHead([H|_]) -> H; 
-% getHead(_) -> none.
-compute(PidRoot, PidMiner,Catena,ListT) -> 
-    
-    receive
-        {get_chain} ->
-                io:format("[~p] La mia catena è: ~p~n",[PidRoot,Catena]),
-                compute(PidRoot, PidMiner, Catena, ListT);        
-        {minerReady} -> 
-            TransactionsToMine = lists:sublist(ListT,10),
-            % Check: se la catena è vuota
-            ID_blocco_prev = case length(Catena) > 0 of
-                true -> 
-                    [{ID,_,_,_}|_] = Catena,
-                    ID;
-                false -> none
-            end,
-            
-            case length(TransactionsToMine) =:= 0 of
-                true ->
-                    compute(PidRoot, PidMiner, Catena, ListT);
-                false ->
-                    PidMiner ! {createBlock, ID_blocco_prev , TransactionsToMine},
-                    receive
-                        {updateMyBlockLocal, B, FriendsList} -> 
-                            sendAll(B, Catena, FriendsList),
-                            compute(PidRoot, PidMiner, [B] ++ Catena, ListT -- TransactionsToMine)
-                    end
-            end;
-        {new_transaction,T} -> 
-            % ricevo una possibile transazione da inserire
-            % se mi arriva vuol dire che non ce l'ho
-            compute(PidRoot, PidMiner,Catena,[T] ++ ListT);
-        {updateLocal, B, FriendsList} -> 
-            {_,ID_prev,ListTransBlock,Solution} = B,
-            case check({ID_prev, ListTransBlock}, Solution) of
-                true ->
-                    % io:format("~nSOLUZIONE OKKKKK~n"),
-                    %VERIFICARE CATENA + LUNGA
-                    sendAll(B, Catena, FriendsList), % gossip del blocco
-                    NewCatena = verifyCatena(Catena, FriendsList, FriendsList, [B]),
-                    case length(NewCatena) > length(Catena) of
-                        true ->
-                            ListTNewBlocks = lists:flatmap(fun(A)->{_,X}=A, X end,NewCatena),
-                            compute(PidRoot, PidMiner, NewCatena , ListT -- ListTNewBlocks); %rimozione di T già presenti in un blocco 
-                        false ->
-                            compute(PidRoot, PidMiner, NewCatena, ListT)
+    %? Caso 3 (HARD):
+    %?     Se ID_Prev di Blocco non fa parte della mia catena 
+    %?     chiedo al Sender di invarmi il Blocco ID_Prev in modo
+    %?     da capire il punto della biforcazione
+    %?     trovato il punto di biforcazione (conosco l'ID_Prev)
+    %?     confronto le catene
+    receive  
+        {updateMyChain, NewChain} ->
+            % aggiorno la visione della catena a seguito di un nuovo blocco minato da me
+            chainRestore(PidB,NewChain);
+        {newBlock,Sender,Blocco} -> 
+            case checkBlock(Blocco) of
+                true ->  % blocco valido
+                    try 
+                        % io:format("~n~nRecontructing...~n~n"),
+                        reconstructing(Blocco,Chain,Sender)            
+                    catch
+                        {done,NewChain,NewTMined} -> 
+                            PidB !  {updateMyChain,{NewTMined,NewChain}},
+                            chainRestore(PidB,NewChain);
+                        discarded -> 
+                            % Il blocco ricevuto è stato scartato
+                            chainRestore(PidB,Chain)
                     end;
-                false -> 
-                    % io:format("~nSOLUZIONE NOOOOOOOOO~n"),
-                    compute(PidRoot, PidMiner, Catena, ListT)
-            end;
-      
-        {get_previousLocal, Mittente, Nonce, Idblocco_precedente} ->
-            % TODO: ricerca blocco con IDblocco_precedente
-            % se non ce l'ho rispondo con none
-            Blocco = searchBlock(Idblocco_precedente,Catena), 
-            Mittente ! {previous, Nonce, Blocco},
-            compute(PidRoot, PidMiner, Catena, ListT);
-        {get_headLocal, Mittente,Nonce} ->
-            case length(Catena) =:= 0 of
-                true -> 
-                    Mittente ! {head, Nonce, none},
-                    compute(PidRoot, PidMiner, Catena, ListT);
-                false -> 
-                    [H | _] = Catena,
-                    Mittente ! {head, Nonce, H},                
-                    compute(PidRoot, PidMiner, Catena, ListT)
+                false ->
+                    chainRestore(PidB,Chain)
             end
+
     end.
+
+compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) ->
+    receive
+        {printTM} ->
+            io:format("[~p] Le transazioni da minare sono: ~p~n",[PidRoot,T_ToMine]),
+            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {printC} ->
+            io:format("[~p] CATENA: ~p~n",[PidRoot,Chain]),
+            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {minerReady,PidM} when length(T_ToMine) =/= 0 ->
+                % vengono rimosse da T_ToMine quando il miner ha finito
+                A = T_ToMine --T_Mined --T_In_Mining,
+                New_T_In_Mining = lists:sublist(A,10),
+                % io:format("~n Invio New T a ~p LengthChain:~p~n",[PidM, length(Chain)]),
+                case length(Chain) =:= 0 of
+                    true -> 
+                        PidM ! {createBlock, none, New_T_In_Mining};
+                    false ->
+                        [{ID_Head,_,_,_}| _] = Chain,
+                        PidM ! {createBlock, ID_Head, New_T_In_Mining}
+                end,
+                compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},New_T_In_Mining);
+
+        %transazione ricevuta da PidT: controllo se non è stata già inserita in qualche blocco
+        {pushLocal, Transazione} -> 
+            case lists:member(Transazione,T_Mined) of
+                true -> 
+                    % già stata minata
+                    compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+                false ->
+                    % non è nella catena
+                    compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine ++ [Transazione],T_Mined},T_In_Mining)
+            end;
+        % blocco ricevuto da Root: controllo se devo fare gossiping
+        {updateLocal,Sender,Blocco}->
+            % mando a PidBlockG il blocco che verifica se fare gossiping e quindi se 
+            % avviare la fase di ricostruzione della catena
+            PidBlockG ! {updateLocal,Sender,Blocco},
+            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {get_previousLocal, Mittente, Nonce, ID_Blocco} ->
+            % il seguente attore cerca nella catena il blocco con ID_Blocco
+            % e se lo trova risponde, altrimenti no
+            spawn(fun()-> 
+                case searchBlock(ID_Blocco,Chain) of
+                    none -> nothing_to_send;
+                    Blocco -> 
+                        Mittente ! {previous, Nonce, Blocco}   
+                end 
+            end),
+            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {get_headLocal, Mittente, Nonce} ->
+                spawn(fun() ->
+                    % se Chain è Empty non mando nulla
+                    case length(Chain) =:= 0 of
+                        true -> nothing_to_send;
+                        false -> 
+                            [Head | _] = Chain, 
+                            Mittente ! {head,Nonce,Head}
+                    end 
+                end),
+                compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {get_head, Mittente, Nonce} ->
+            spawn(fun() ->
+                % se Chain è Empty non mando nulla
+                case length(Chain) =:= 0 of
+                    true -> nothing_to_send;
+                    false -> 
+                        [Head | _] = Chain, 
+                        Mittente ! {head,Nonce,Head}
+                end 
+            end),
+            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {updateMyChain,{TMinedFromUpdate,NewChain}} -> 
+                % io:format("~n~n[~p] My new chain -> ~p ~n(Length -> ~p)~n",[PidRoot,NewChain,length(NewChain)]),
+                % killo il miner
+                exit(PidM,kill),
+                % Le Transazioni su cui stava lavorando il Miner 
+                % sono ancora nella lista delle transazioni da minare
+                % TMinedFromUpdate sono le T del blocco accettato dall'update
+                % perciò aggiorno la lista di T_Mined 
+                New_T_Mined = TMinedFromUpdate ++ T_Mined,
+                % ed eventualmente la lista di T_ToMine
+                New_T_ToMine = T_ToMine -- TMinedFromUpdate,
+                % creo un nuovo miner
+                PidB = self(),                
+                NewPidM = spawn(fun() -> start_M_act(PidRoot,PidB) end),
+                io:format("[~p] Miner killed (~p). New Miner created (~p)~n",[PidRoot,PidM,NewPidM]),
+                compute(
+                    PidRoot,PidRestore,PidBlockG,
+                    NewPidM,
+                    NewChain,{New_T_ToMine,New_T_Mined},[]);
+            {miningFinished, Blocco} -> % il miner ha terminato
+                {_,ID_Prev_Block_Mined,T_In_Mined_Block,_} = Blocco,
+
+                case length(Chain) =:= 0 of
+                    true ->
+                        % ID_PREV_BLOCK deve essere none
+                        case ID_Prev_Block_Mined =:= none of
+                            true -> 
+                                % aggiorno la lista di Transazioni minate 
+                                New_T_Mined = T_In_Mined_Block ++ T_Mined,
+                                New_T_ToMine = T_ToMine -- T_In_Mined_Block,
+                                PidRestore ! {updateMyChain, [Blocco] ++ Chain}, %avverto il ricostruttore della nuova visione
+                                PidBlockG ! {updateMinedBlock, Blocco}, % gossiping del blocco
+                                compute(PidRoot,PidRestore,PidBlockG,PidM,[Blocco] ++ Chain,{New_T_ToMine,New_T_Mined},[]);
+                            false -> 
+                                % per qualche motivo il blocco minato non coincide più con la testa della catena
+                                compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine--T_Mined,T_Mined},[])                                
+                        end;
+                    false -> 
+                        [{ID_Head,_,_,_} | _ ] = Chain,
+                        case ID_Head =:= ID_Prev_Block_Mined of
+                            true ->
+                                % aggiorno la lista di Transazioni minate 
+                                New_T_Mined = T_In_Mined_Block ++ T_Mined,
+                                New_T_ToMine = T_ToMine -- T_In_Mined_Block,
+                                %avverto il ricostruttore della nuova visione
+                                PidRestore ! {updateMyChain, [Blocco] ++ Chain},
+                                PidBlockG ! {updateMinedBlock, Blocco}, % gossiping del blocco
+                                compute(PidRoot,PidRestore,PidBlockG,PidM,[Blocco] ++ Chain,{New_T_ToMine,New_T_Mined},[]);
+                            false ->
+                                % per qualche motivo il blocco minato non coincide più con la testa della catena
+                                compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine--T_Mined,T_Mined},[])
+                        end
+                    end;
+
+        lastcase -> nothing_to_do
+    end.
+
+sleep(N) -> receive after N*1000 -> ok end.
 
 start_B_act(PidRoot) -> 
-    % creazione attore che mina
-    PidBlock = self(),
-    PidMiner = spawn(fun() -> start_M_act(PidRoot,PidBlock) end),
-    % io:format("[~p]: sono l'attore Blocco di ~p~n",[self(),PidRoot]),
-    compute(PidRoot,PidMiner,[], []). 
-
-verifyCatena(Catena, FriendsList, FriendsListToAsk, CatenaB) ->
-    [Head | _ ] = Catena,
-    B = lists:nth(length(CatenaB),CatenaB),
-    {_,ID_prev_block,_,_} = B, %pattern matching per prendere l'id del blocco precedente al blocco corrente
-    {ID_head,_,_,_} = Head,
-    IdsBlocksInCatena = lists:map(fun(A)->{X,_,_,_}=A, X end,Catena),
-    % io:format("~p: id prev amico    ~p: our id ~n",[ID_prev_block, ID_head]),
-    case lists:member(ID_prev_block, IdsBlocksInCatena) of
-        true -> % caso in cui il precedente del blocco(con relativi eventuali blocchi annessi) che dovrei aggiungere si trova nella mia lista
-            case ID_prev_block =:= ID_head of
-                true -> 
-                    % caso buono: il blocco nuovo viene aggiunto in testa
-                    CatenaB ++ Catena;
-                false -> 
-                    % devo trovare il punto in cui agganciare il nuovo blocco
-                    I = indexBlock(ID_prev_block, IdsBlocksInCatena, 1),
-                    CatenaConfrTail = lists:sublist(Catena,I-1),
-                    CatenaConfrHead = Catena -- CatenaConfrTail,
-                    case length(CatenaB) > length(CatenaConfrTail) of
-                        true ->
-                            CatenaB ++ CatenaConfrHead;
-                        false ->
-                            case length(CatenaB) =:= length(CatenaConfrTail) of
-                                true ->
-                                    case rand:uniform(2) of 
-                                        1 -> Catena;
-                                        2 -> CatenaB ++ CatenaConfrHead
-                                    end;
-                                false ->
-                                    Catena
-                            end
-                    end
-            end;
-        false -> 
-            % caso in cui il precedente del blocco(con relativi eventuali blocchi annessi) 
-            % che dovrei aggiungere NON si trova nella mia lista
-            case ID_prev_block =/= none of
-                true -> 
-                    RandomFriend = lists:nth(rand:uniform(length(FriendsList)),FriendsList),
-                    RandomFriend ! {get_previous, self(), make_ref(), ID_prev_block},
-                    receive 
-                        {previousLocal, none} when length(FriendsListToAsk) =:= 0 -> 
-                           % Quando la lista di amici a cui posso chiedere diventa vuota, 
-                           % richiedo nuovamente a tutti gli amici
-                            verifyCatena(Catena, FriendsList, FriendsList, CatenaB);
-                        {previousLocal, none} when length(FriendsListToAsk) =/= 0 -> 
-                            verifyCatena(Catena, FriendsList, FriendsList -- [RandomFriend], CatenaB);
-                        {previousLocal, B_prev} ->
-                            verifyCatena(Catena, FriendsList, FriendsList, CatenaB++B_prev)
-                        
-                    after 5000 -> 
-                        verifyCatena(Catena, FriendsList, FriendsList -- [RandomFriend], CatenaB)
-                    end;
-                false -> 
-                    Catena
-            end
-    end.
-
-sendAll(B, Catena, FriendsList) ->
-    case lists:member(B,Catena) of
-        true -> not_send_block; % gossiping della nuova transaction
-        false -> [ X ! {update, B} || X <- FriendsList]
-    end.
+    sleep(10),
+    PidB = self(),
+    T_ToMine = [],
+    {Chain,T_Mined} = buildInitChain(PidRoot),
+    % io:format("[~p] Catena: ~p, Transazioni: ~p~n",[PidRoot,Chain,T_Mined]),
+    % ottenuta la catena prendo tutte le transazioni all'interno e le inserisco nella
+    % lista di transazione già minate -> T_Mined
+    % Attore per la ricostruzione della catena
+    PidM = spawn(fun() -> start_M_act(PidRoot,PidB) end),
+    PidRestore = spawn(fun() -> chainRestore(PidB,Chain) end),
+    % Attore per il gossiping 
+    sleep(1),
+    PidBlockG = spawn(fun() -> 
+        % lista blocchi conosciuti (inizialmente è la catena)
+        blockGossiping(PidRoot,PidB,PidRestore,Chain)
+         end),
+    compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},[]).

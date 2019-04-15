@@ -1,10 +1,9 @@
 -module(ccl).
--import (check_act , [checkList/1]).
+-import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
 -import (block_act , [start_B_act/1]).
 
-
--export([main/0,start/1]).
+-export([test/0,start/1]).
 
 -on_load(load_module_act/0).
 
@@ -12,7 +11,11 @@ load_module_act() ->
     compile:file('teacher_node.erl'), 
     compile:file('actors/check_act.erl'), % attore che controlla la tipologia
     compile:file('actors/transaction_act'), % attore gestore delle transazioni
-    compile:file('actors/block_act.erl'), 
+    compile:file('actors/block_act.erl'),
+    compile:file('actors/block_gossiping_act.erl'), 
+    compile:file('actors/chain_tools.erl'), 
+    compile:file('actors/miner_act.erl'), 
+    compile:file('proof_of_work.erl'),
     ok.  
 
 
@@ -32,101 +35,107 @@ watch(Main,Node) ->
     end.
 
 
-loop(FriendsList, NameNode,PidT,PidB) -> 
-    receive
-        {checkList, CheckAct} ->
-            CheckAct ! {myList, FriendsList},
-            loop(FriendsList,NameNode,PidT,PidB);
+loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
+    receive 
+        %! %%%%%%%%% DEBUG %%%%%%%%%%%
+        {addNewNonce, Nonce} ->
+            % io:format("ho aggiunto un nonce ~n"),
+            loop(FriendsList,NameNode,PidT,PidB,PidC,Nonces++[Nonce]);
+        {removeNonce, Nonce} ->
+            % io:format("ho rimosso un nonce ~n"),
+            loop(FriendsList,NameNode,PidT,PidB,PidC,Nonces--[Nonce]);
+        {checkFriendsList, CheckAct} ->
+            CheckAct ! {myFriendsList, FriendsList},
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
         {printT} ->
             PidT ! {printT},
-            loop(FriendsList, NameNode,PidT,PidB);
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
         {print} -> 
-            io:format("[~p, ~p]: ha questi amici: ~p~n",[self(),NameNode,FriendsList]),
-            loop(FriendsList,NameNode,PidT,PidB); 
-        {get_chain} ->
-                PidB ! {get_chain},
-                loop(FriendsList,NameNode,PidT,PidB);
+            io:format("[~p, ~p]: ha questi amici: ~p~n",[self(),NameNode, FriendsList]),
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces); 
+        {printC} ->
+            PidB ! {printC},
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
+        {printTM} ->
+            PidB ! {printTM},
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);  
 
-        %%%%%%% Mantenimento Topologia %%%%%%%
+        %!%%%%%% Mantenimento Topologia %%%%%%%
         {ping, Mittente, Nonce} -> % sono vivo
             Mittente ! {pong, Nonce},
-            loop(FriendsList,NameNode,PidT,PidB);                
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);                
     
         {get_friends, Mittente, Nonce} -> % qualcuno mi ha chiesto la lista di amici
             Mittente ! {friends, Nonce, FriendsList}, 
             % se Mittente non è nella FList lo aggiungo se ho meno di 3 amici
             case lists:member(Mittente, FriendsList) of
-                    true -> loop(FriendsList,NameNode,PidT, PidB);
+                    true -> loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
                     false -> 
                         case length(FriendsList) < 3 of 
                             true -> 
                                 Self = self(), % per preservare il Pid-Root
                                 % metto un watch su Mittente
-                                spawn(fun()-> watch(Self,Mittente) end),
+                                spawn(fun()-> watch(Self, Mittente) end),
                                 % io:format("[~p, ~p] ha un nuovo amico: ~p (in seguito ad una get_friends)~n",[self(),NameNode,Mittente]),
-                                loop([Mittente | FriendsList],NameNode,PidT,PidB);
+                                loop([Mittente | FriendsList], NameNode, PidT, PidB, PidC, Nonces);
                             false -> % non ho bisogno di altri amici
-                                loop(FriendsList,NameNode,PidT,PidB)
+                                loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces)
                         end
             end;
-        {friends, _, Lista_di_amici} -> 
-            ListTemp = ((Lista_di_amici -- [self()]) -- FriendsList),            
-            case length(ListTemp) =:= 0 of
-                true -> % non ho ricevuto amici "utili"
-                    loop(FriendsList,NameNode,PidT,PidB);
+        {friends, Nonce, Lista_di_amici} -> 
+            %se ho il Nonce elaboro il mess
+            case lists:member(Nonce, Nonces) of 
+                true ->
+                    %io:format("~p stava in ~p ~n",[Nonce, Nonces]),
+                    NewNonces = Nonces--[Nonce],
+                    ListTemp = ((Lista_di_amici -- [self()]) -- FriendsList),            
+                    case length(ListTemp) =:= 0 of
+                        true -> % non ho ricevuto amici "utili"
+                            loop(FriendsList, NameNode, PidT, PidB, PidC, NewNonces);
+                        false -> 
+                            % prendo solo n amici per arrivare a 3
+                            NewFriends = addNodes(length(FriendsList), ListTemp),
+                            % io:format("[~p, ~p] ha ~p nuovi amici: ~p~n",[self(),NameNode,length(NewFriends),NewFriends]),
+                            watchFriends(NewFriends,self()), % per amico un watcher 
+                            NewList = NewFriends ++ FriendsList,
+                            loop(NewList, NameNode, PidT, PidB, PidC, NewNonces)
+                    end;
                 false -> 
-                    % prendo solo n amici per arrivare a 3
-                    NewFriends = addNodes(length(FriendsList), ListTemp),
-                    % io:format("[~p, ~p] ha ~p nuovi amici: ~p~n",[self(),NameNode,length(NewFriends),NewFriends]),
-                    watchFriends(NewFriends,self()), % per amico un watcher 
-                    NewList = NewFriends ++ FriendsList,
-                    loop(NewList,NameNode,PidT,PidB)
+                    %io:format("~p NON stava in ~p ~n",[Nonce, Nonces]),
+                    loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces)
             end;
         {dead, Node} ->
             % io:format("[~p, ~p]: ~p è morto~n",[self(),NameNode,Node]),
             NewList =  FriendsList -- [Node],
-            loop(NewList,NameNode,PidT,PidB);
-        %%%%%%%%%%%% GESTIONE TRANSAZIONI %%%%%%%%%%%%%
+            loop(NewList, NameNode, PidT, PidB, PidC, Nonces);
+        %!%%%%%%%%%%% GESTIONE TRANSAZIONI %%%%%%%%%%%%%
         % Push locale di una transazione all'attore delegato che provvede a fare gossiping di Transazione
         {push, Transazione} -> 
             % io:format("[~p, ~p]: Ho ricevuto la transazione ~p~n",[self(),NameNode,Transazione]),
-            PidT ! {pushLocal, Transazione, FriendsList},
-            loop(FriendsList,NameNode,PidT,PidB);
-        
-    
+            PidT ! {pushLocal, Transazione, FriendsList}, % si occupa di fare gossiping di T
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
 
-        %%%%%%%%%%%% GESTIONE BLOCCHI %%%%%%%%%%%%%%%%%%
-        % Update locale di un blocco all'attore delegato
-        {update, Blocco} ->
+        %!%%%%%%%%%%% GESTIONE BLOCCHI %%%%%%%%%%%%%%%%%%
+        % sender mi ha mandato questo blocco da rigirare
+        {update, Sender, Blocco} ->
             % io:format("[~p, ~p]: Ho ricevuto l'update del blocco ~p~n",[self(),NameNode,Blocco]),
-            PidB ! {updateLocal, Blocco, FriendsList},
-            loop(FriendsList,NameNode,PidT,PidB);
-        {updateMyBlock, Blocco} ->
-            % io:format("[~p, ~p]: Ho creato il blocco ~p~n",[self(),NameNode,Blocco]),
-            PidB ! {updateMyBlockLocal, Blocco, FriendsList},
-            loop(FriendsList,NameNode,PidT,PidB);
-        
-        % B_Act ha fatto una richiesta che viene riceveuta dall'attore root che 
-        % manderà la risposta a B_Act 
-        {previous, _, Blocco} ->
-            PidB ! {previousLocal,Blocco},
-            loop(FriendsList,NameNode,PidT,PidB);
+            PidB ! {updateLocal,Sender,Blocco},
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
+
+        %!%%%%%%%%%%%% RICHIESTA INFO SULLA MIA CATENA %%%%%%%%%%%%%%
         {get_previous, Mittente, Nonce, Idblocco_precedente} ->
             PidB ! {get_previousLocal, Mittente, Nonce, Idblocco_precedente},
-            % TODO: B_Act manda a Mittente il blocco_procedente
-            loop(FriendsList,NameNode,PidT,PidB);
-        {get_head,Mittente, Nonce} ->
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
+        {get_head, Mittente, Nonce} ->
             PidB ! {get_headLocal, Mittente,Nonce},
-            loop(FriendsList,NameNode,PidT,PidB);
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
         {'EXIT',_,_} -> 
-            % io:format("[~p, ~p]: ~p è morto con causa ~p~n",[self(),NameNode,Pid,Reason]),
-            loop(FriendsList,NameNode,PidT,PidB)
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces)
     end.
 
 
 % aggiungo nodi fino a quando non raggiungo 3
 addNodes(LengthFList,ListTemp) ->
-    % todo: selezione random di amici. Ne prendo |LengthFList - Len(ListTem)|
     case LengthFList + length(ListTemp) > 3 of
         true ->                        
             addNodes(LengthFList, (ListTemp -- [lists:nth(rand:uniform(length(ListTemp)),ListTemp)]));
@@ -135,18 +144,22 @@ addNodes(LengthFList,ListTemp) ->
     end.
 
 
+
+
 start(NameNode) -> 
     Self = self(),
     process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
-    spawn_link(fun() -> checkList(Self) end), % attore delegato al check degli amici 
+    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
     PidB = spawn_link(fun() -> start_B_act(Self) end), % attore delegato alla gestione dei blocchi
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
-    loop([],NameNode, PidT, PidB).
-    
+    loop([],NameNode, PidT, PidB, PidC, []).
+
 watchFriends(NewItems,Main) -> [spawn(fun()-> watch(Main,X) end) || X<-NewItems].
 
-main() ->  
-    TIME = 4,
+test() ->  
+    io:format("Versione 1.5~n"),
+    TIME = 2,
+    TIME_TO_TRANS = 3,
     spawn(teacher_node,main,[]), % teacher_node
     sleep(1),
     
@@ -164,38 +177,66 @@ main() ->
     
     N4 = spawn(?MODULE,start,["N4"]),
     io:format("~p -> ~p~n",["N4",N4]),
-    sleep(TIME),
-    
-    N5 = spawn(?MODULE,start,["N5"]),
-    io:format("~p -> ~p~n",["N5",N5]),
 
+    % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    sleep(17),
     io:format("Testing Transaction...~n"),
-    sleep(5),
-    io:format("Send Transaction~n",[]),
-    Payload1 = {"Ho comprato il pane"},
+    Payload1 = "Ho comprato il pane",
     N1 ! {push, {make_ref(), Payload1}},
-
-    sleep(3),
-    io:format("Send Transaction~n",[]),
-    Payload2 = {"Ho comprato il pesce"},
+    sleep(TIME_TO_TRANS),
+    Payload2 = "Ho comprato il pesce",
     N1 ! {push, {make_ref(), Payload2}},
     
-    sleep(3),
-    io:format("Send Transaction~n",[]),
-    Payload3 = {"Ho comprato il latte"},
+    sleep(TIME_TO_TRANS),
+    Payload3 = "Ho comprato il latte",
     N2 ! {push, {make_ref(), Payload3}},
 
-    sleep(3),
-    io:format("Send Transaction~n",[]),
-    Payload4 = {"Ho comprato la carne"},
+    sleep(TIME_TO_TRANS),
+    Payload4 = "Ho comprato la carne",
     N3 ! {push, {make_ref(), Payload4}},
     
-    sleep(3),
-    io:format("Send Transaction~n",[]),
-    Payload5 = {"Ho comprato il pesto"},
-    N4 ! {push, {make_ref(), Payload5}},
+    sleep(TIME_TO_TRANS),
+    Payload5 = "Ho comprato il pesto",
+    N2 ! {push, {make_ref(), Payload5}},
     
-    sleep(3),
-    io:format("Send Transaction~n",[]),
-    Payload6 = {"Ho comprato il succo"},
-    N4 ! {push, {make_ref(), Payload6}}.
+    sleep(TIME_TO_TRANS),
+    Payload6 = "Ho comprato il succo",
+    N1 ! {push, {make_ref(), Payload6}},
+
+    io:format("End Transaction Send ~n"),
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    sleep(20),
+    io:format("New Actors ~n"),
+    N5 = spawn(?MODULE,start,["N5"]),
+    io:format("~p -> ~p~n",["N5",N5]),
+        
+    sleep(TIME_TO_TRANS),
+    Payload7 = "Ho comprato il vino",
+    N1 ! {push, {make_ref(), Payload7}},
+
+
+    spawn(fun()->
+        PRINT = fun PRINT() ->
+            sleep(20),
+            io:format("----- ACTORS LIST ------~n"),
+            io:format("~p -> ~p~n",["N1",N1]),
+            io:format("~p -> ~p~n",["N2",N2]),
+            io:format("~p -> ~p~n",["N3",N3]),
+            io:format("~p -> ~p~n",["N4",N4]),
+            io:format("~p -> ~p~n",["N5",N5]),
+            io:format("-------------------------~n"),
+            N2 ! {printC},
+            N3 ! {printC},    
+            N4 ! {printC},    
+            N5 ! {printC},
+            PRINT()
+        end,
+        PRINT()    
+     end),
+    
+
+    sleep(20),
+    exit(N1, kill),
+    sleep(15),
+    Payload8 = "Ho comprato la pizza",
+    N2 ! {push, {make_ref(), Payload8}}.

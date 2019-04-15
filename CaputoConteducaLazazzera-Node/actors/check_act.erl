@@ -1,49 +1,61 @@
 -module(check_act).
--export([checkList/1, askProfAfterTimeout/1]).
+-export([start_C_act/1, askProfAfterTimeout/1]).
 
 sleep(N) -> receive after N*1000 -> ok end.
 
 %%%%%%%%  behavior dell'attore che controlla gli amici di PID %%%%%%%%
-checkList(Pid) -> 
+start_C_act(PidRoot) -> 
     sleep(6),
-    Pid ! {checkList,self()},
+    PidRoot ! {checkFriendsList,self()},
     receive
-        {myList, List} -> 
-            requireFriends(List,Pid),
-            checkList(Pid)
+        {myFriendsList, List} -> 
+            case length(List) < 3 of
+                true -> 
+                    requireFriends(List,PidRoot),
+                    start_C_act(PidRoot);
+                false ->
+                    start_C_act(PidRoot)
+            end
     end.
 
-requireFriends(FList,Mittente) -> 
-        case length(FList) < 3 of
-            true ->
-                case length(FList) =:= 0  of
-                    true -> 
-                        %io:format("~p chiede al prof ~n",[Mittente]),
-                        askProf(Mittente);
-                    false ->
-                        spawn(?MODULE,askProfAfterTimeout,[Mittente]),
-                        %io:format("~p chiede agli amici ~n",[Mittente]),
-                        askToFriends(FList,Mittente)
-                end;
-            false -> ok
-        end.
-askProf(Mittente) ->
-    global:send(teacher_node,{get_friends,Mittente,make_ref()}).    
-askProf(Mittente, FList) ->
-    case length(FList) < 3 of 
-        true -> global:send(teacher_node,{get_friends,Mittente,make_ref()});
-        false -> ok
+requireFriends(FList,PidRoot) -> 
+    case length(FList) =:= 0  of
+        true -> 
+            %io:format("~p chiede al prof ~n",[PidRoot]),
+            askProf(PidRoot);
+        false ->
+            askToFriends(FList,PidRoot),
+            sleep(10),
+            askProfAfterTimeout(PidRoot)         
     end.
-askToFriends(FList, Mittente) ->  
-    Ref = make_ref(),
-    PidFriendReq = lists:nth(rand:uniform(length(FList)),FList), 
-    % mando a PidFriendReq la richiesta di avere amici
-    PidFriendReq ! {get_friends, Mittente, Ref}. 
-askProfAfterTimeout(Mittente) ->
-    sleep(40),
-    Self = self(),
-    Mittente ! {checkList, Self},
+    
+askProf(PidRoot) ->
+    Nonce = make_ref(),
+    PidRoot ! {addNewNonce, Nonce},
+    global:send(teacher_node,{get_friends,PidRoot,Nonce}).    
+
+
+askToFriends(FList, PidRoot) ->
+    % PidFriendReq = lists:nth(rand:uniform(length(FList)),FList), 
+    case length(FList) of 
+        0 ->
+            nothing_to_do;
+        _ -> 
+            Nonce = make_ref(),
+            PidRoot ! {addNewNonce, Nonce},
+            [H|T]= FList,
+            H ! {get_friends, PidRoot, Nonce},
+            askToFriends(T, PidRoot)
+    end.
+
+askProfAfterTimeout(PidRoot) ->
+    PidRoot ! {checkFriendsList, self()},
     receive 
-        {myList, FriendsList} ->
-                askProf(Mittente,FriendsList)
+        {myFriendsList, FriendsList} ->  
+            case length(FriendsList) < 3 of 
+                true ->
+                    % io:format("Chiamo il prof~n"), 
+                    askProf(PidRoot);
+                false -> nothing_to_do
+            end
     end.
