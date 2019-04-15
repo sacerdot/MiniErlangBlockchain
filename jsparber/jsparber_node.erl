@@ -7,6 +7,7 @@
 % TODO: Clean up heads and blocks
 % TODO: Maintain a friends list of exactly 3 nodes
 % TODO: Make teacher_node a variable
+% TODO: fix issue with asking friends (going crazy).
 
 sleep(N) -> receive  after N * 1000 -> ok end.
 
