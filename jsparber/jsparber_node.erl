@@ -56,7 +56,7 @@ loop(Nodes, Old_nonces) ->
     {request_friends, Teacher} ->
       New_nonces = case length(Nodes) < 3 of
                      true ->
-                       case Teacher of
+                       case Teacher or length(Nodes)  == 0 of
                          true -> nonces_cleaner(self(), [ask_teacher(self())]) ++ Nonces;
                          false -> nonces_cleaner(self(), [ask_friend(self(), Nodes)]) ++ Nonces
                        end;
