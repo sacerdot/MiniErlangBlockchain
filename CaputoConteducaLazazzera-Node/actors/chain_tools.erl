@@ -1,6 +1,7 @@
 -module(chain_tools).
 -export([buildInitChain/1,reconstructing/3,searchBlock/2,checkBlock/1]).
 -import (proof_of_work , [solve/1,check/2]).
+-import (utils , [sendMessage/2]).
 
 
 %%%%%%%%% * PUBLIC *%%%%%%%%
@@ -114,12 +115,9 @@ searching(OtherChain, MyChain, Blocco, Sender) ->
             PrevBlock = searchPrevious(Blocco,Sender),
             % continuo la ricerca cercando PrevBlock
             searching(OtherChain ++ [Blocco], MyChain,PrevBlock,Sender);
-        B -> % B è il blocco in comune --> biforcazione trovata 
+        B -> % B è il blocco in comune --> biforcazione trovata
+     
             PositionCommonBlock = indexBlock(B,MyChain,1),
-            % LengthMyChain = length(MyChain),
-            % LengthCommonPart = LengthMyChain - (PositionCommonBlock + 1),
-            % LengthOtherChain = LengthCommonPart + length(OtherChain),
-
             LengthMyChainToConfr = PositionCommonBlock - 1,
             LengthOtherChainToConfr = length(OtherChain),
 
@@ -145,7 +143,6 @@ searching(OtherChain, MyChain, Blocco, Sender) ->
 
 otherChainAccepted(MyChain,OtherChain,PositionCommonBlock) ->
     % io:format("~n[Blocco Trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),
-
     ChainCommon = lists:nthtail(PositionCommonBlock,MyChain),
     % tutte le transizione nella parte che sto inserendo
     T_in_Other_Chain = lists:flatmap(fun(A)->{_,_,X,_}=A, X end,OtherChain),
@@ -166,7 +163,7 @@ indexBlock(B,[H|T], Index) ->
 searchPrevious({_,ID_Prev,_,_},Sender) ->
     %! Bloccante max 5 secondi
     Nonce = make_ref(),
-    Sender ! {get_previous,self(),ID_Prev},
+    sendMessage(Sender, {get_previous,self(),ID_Prev}),
     receive 
         {previous,Nonce,Blocco} -> 
             case checkBlock(Blocco) of
@@ -189,7 +186,7 @@ getRestChain(Friend,Chain,TList,ID_Prev_Current) ->
 
     % E' una chiusura quindi Nonce come non può essere utilizzato
     Ref = make_ref(),
-    Friend ! {get_previous, self(), Ref, ID_Prev_Current},
+    sendMessage(Friend, {get_previous, self(), Ref, ID_Prev_Current}),
     % io:format("[~p] Chiedo il previous da ~p~n",[self(),Friend]),
     receive
         {previous, Ref, PrevBlock} ->
@@ -204,7 +201,7 @@ getRestChain(Friend,Chain,TList,ID_Prev_Current) ->
 getChain(Friend) -> 
 
     Nonce = make_ref(),
-    Friend ! { get_head, self(), Nonce },
+    sendMessage( Friend , { get_head, self(), Nonce }),
     % io:format("[~p] Chiedo la testa a ~p~n",[self(),Friend]),
     receive 
         {head, Nonce, Blocco} -> 

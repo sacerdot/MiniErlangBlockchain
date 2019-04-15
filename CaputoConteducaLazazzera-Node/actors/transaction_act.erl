@@ -1,9 +1,10 @@
 -module(transaction_act).
 -export([start_T_act/2]).
-%%%%%%%%  behavior dell'attore che gestisce le transizioni %%%%%%%%
-% Transaction = {ID.Payload}
+-import (utils , [sendMessage/2]).
 
-% TODO: random su invio, invio doppio, non invio in sendAll()
+%!%%%%%%%  behavior dell'attore che gestisce le transizioni %%%%%%%%
+% Transaction = {ID,Payload}
+
 
 compute(PidRoot,ListT,PidB) -> 
     receive
@@ -28,7 +29,7 @@ compute(PidRoot,ListT,PidB) ->
     end.
 
 sendAll(T, FriendsList) ->
-    [ X ! {push, T} || X <- FriendsList]. % gossiping della nuova transaction
+    [ sendMessage(X,{push, T}) || X <- FriendsList]. % gossiping della nuova transaction
      
 start_T_act(PidRoot,PidB) -> 
     % io:format("[~p]: sono l'ttore Transazione di ~p~n",[self(),PidRoot]),

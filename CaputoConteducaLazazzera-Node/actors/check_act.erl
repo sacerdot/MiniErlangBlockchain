@@ -1,5 +1,6 @@
 -module(check_act).
 -export([start_C_act/1, askProfAfterTimeout/1]).
+-import (utils , [sendMessage/2]).
 
 sleep(N) -> receive after N*1000 -> ok end.
 
@@ -36,7 +37,6 @@ askProf(PidRoot) ->
 
 
 askToFriends(FList, PidRoot) ->
-    % PidFriendReq = lists:nth(rand:uniform(length(FList)),FList), 
     case length(FList) of 
         0 ->
             nothing_to_do;
@@ -44,7 +44,7 @@ askToFriends(FList, PidRoot) ->
             Nonce = make_ref(),
             PidRoot ! {addNewNonce, Nonce},
             [H|T]= FList,
-            H ! {get_friends, PidRoot, Nonce},
+            sendMessage(H , {get_friends, PidRoot, Nonce}),
             askToFriends(T, PidRoot)
     end.
 

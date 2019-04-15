@@ -2,21 +2,25 @@
 -import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
 -import (block_act , [start_B_act/1]).
+-import (utils , [sendMessage/2]).
+
 
 -export([test/0,start/1]).
 
 -on_load(load_module_act/0).
 
+
 load_module_act() ->
-    compile:file('teacher_node.erl'), 
     compile:file('actors/check_act.erl'), % attore che controlla la tipologia
     compile:file('actors/transaction_act'), % attore gestore delle transazioni
     compile:file('actors/block_act.erl'),
     compile:file('actors/block_gossiping_act.erl'), 
     compile:file('actors/chain_tools.erl'), 
-    compile:file('actors/miner_act.erl'), 
-    compile:file('proof_of_work.erl'),
+    compile:file('actors/miner_act.erl'),
+    compile:file('utils.erl'),
     ok.  
+
+
 
 
 sleep(N) -> receive after N*1000 -> ok end.
@@ -66,7 +70,8 @@ loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) ->
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);                
     
         {get_friends, Mittente, Nonce} -> % qualcuno mi ha chiesto la lista di amici
-            Mittente ! {friends, Nonce, FriendsList}, 
+            Msg = {friends, Nonce, FriendsList},
+            sendMessage(Mittente, Msg),
             % se Mittente non è nella FList lo aggiungo se ho meno di 3 amici
             case lists:member(Mittente, FriendsList) of
                     true -> loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
@@ -124,10 +129,12 @@ loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) ->
 
         %!%%%%%%%%%%%% RICHIESTA INFO SULLA MIA CATENA %%%%%%%%%%%%%%
         {get_previous, Mittente, Nonce, Idblocco_precedente} ->
-            PidB ! {get_previousLocal, Mittente, Nonce, Idblocco_precedente},
+            % inoltro il messaggio a PidB
+            PidB ! {get_previous, Mittente, Nonce, Idblocco_precedente},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
         {get_head, Mittente, Nonce} ->
-            PidB ! {get_headLocal, Mittente,Nonce},
+            % inoltro il messaggio a PidB
+            PidB ! {get_head, Mittente,Nonce},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
         {'EXIT',_,_} -> 
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces)
@@ -179,7 +186,7 @@ test() ->
     io:format("~p -> ~p~n",["N4",N4]),
 
     % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    sleep(17),
+    sleep(5),
     io:format("Testing Transaction...~n"),
     Payload1 = "Ho comprato il pane",
     N1 ! {push, {make_ref(), Payload1}},
@@ -212,12 +219,12 @@ test() ->
         
     sleep(TIME_TO_TRANS),
     Payload7 = "Ho comprato il vino",
-    N1 ! {push, {make_ref(), Payload7}},
+    N5 ! {push, {make_ref(), Payload7}},
 
 
     spawn(fun()->
         PRINT = fun PRINT() ->
-            sleep(20),
+            sleep(15),
             io:format("----- ACTORS LIST ------~n"),
             io:format("~p -> ~p~n",["N1",N1]),
             io:format("~p -> ~p~n",["N2",N2]),
