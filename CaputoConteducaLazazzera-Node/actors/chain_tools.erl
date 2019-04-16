@@ -1,5 +1,5 @@
 -module(chain_tools).
--export([buildInitChain/1,reconstructing/3,searchBlock/2,checkBlock/1]).
+-export([buildInitChain/1,reconstructing/3,searchBlock/2,checkBlock/1,validityBlock/2]).
 -import (proof_of_work , [solve/1,check/2]).
 -import (utils , [sendMessage/2]).
 
@@ -64,6 +64,30 @@ searchBlock(ID_Search,Chain) ->
                 false -> searchBlock(ID_Search,T)
             end
     end.
+
+% se le TinBlock sono contenute in Mined o in Mining rifiuto il blocco
+% ma salvo le T che no ho minato in ToMine
+validityBlock({ToMine,TMined},{_,_,TinBlock,_}) -> 
+    % quali sono le T non minate in Blocco arrivato?
+    NotMined = TinBlock -- TMined,    
+    if 
+        length(TinBlock) > length(NotMined) ->
+            % allora ho gia minato qualche T in Blocco arrivato
+            % perciò rifiuto il Blocco        
+            NewToMine = (ToMine -- NotMined) ++ NotMined, % per evitare eventuali duplicati
+            % TMined non viene aggiornata in quanto il blocco non viene accettato
+            {NewToMine, TMined, false};
+        length(TinBlock) =:= length(NotMined) ->
+            % nel blocco ci sono T che non ho minato ma non posso minarle in quanto
+            % presenti nel blocco arrivato
+            % aggiorno lista di T da minare e già minate
+            NewToMine = ToMine -- TinBlock,
+            NewTMined = TMined ++ TinBlock,
+            {NewToMine, NewTMined, true};
+        true ->
+            % mai nella vita, però...
+            {ToMine, TMined, true}
+end.
 
 
 checkBlock({_, ID_Prev,ListT,Solution}) -> 
