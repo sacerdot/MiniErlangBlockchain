@@ -25,5 +25,3 @@ solve(Input,Solution) ->
       true  -> Solution ;
       false -> solve(Input,Solution+1)
    end.
-
-
