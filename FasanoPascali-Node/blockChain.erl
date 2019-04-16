@@ -33,7 +33,7 @@ managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsIn
 %%proof_of_work:check({IDblocco_precedente,Lista_di_transazioni}, Soluzione)
 
 %% gestisce i blocchi
-managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
+managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, IdBlocks) ->
   receive
     {update, Sender, Block} ->
 
@@ -63,9 +63,7 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
       end;
 
     {get_head, Sender, Nonce} ->
-      Block = block_head,%% todo
-
-      Sender ! {head, Nonce, Block};
+      Sender ! {head, Nonce, lists:nth(length(BlockChain), BlockChain)};
 
     {head, Nonce, Block} ->
       TempNonce = make_ref(),
@@ -77,4 +75,4 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
       after 5000 -> self() ! {head, Nonce, Block}
       end
   end,
-  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain).
+  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, IdBlocks).
