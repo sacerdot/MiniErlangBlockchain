@@ -15,17 +15,16 @@ compute(PidRoot,PidBlock) ->
         % OrderTrans = lists:sort(Transactions),
         % Nums = lists:flatmap(fun(X)-> {R, _}=X, returnLastNum(R) end, OrderTrans),
         % B = {Nums, ID_blocco_prev, Transactions, Solution},
-
         % Prof Version
         B = {make_ref(), ID_blocco_prev, Transactions, Solution},
         PidBlock ! {miningFinished, B},
         compute(PidRoot,PidBlock)
     end.
 
-returnLastNum(Ref) ->
-    [RefString] = io_lib:format("~p", [Ref]),
-    {match, L} = re:run(RefString, "#Ref<(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)>",[{capture, all_but_first, list}]),
-    lists:nth(length(L),L).
+% returnLastNum(Ref) ->
+    % [RefString] = io_lib:format("~p", [Ref]),
+    % {match, L} = re:run(RefString, "#Ref<(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)>",[{capture, all_but_first, list}]),
+    % lists:nth(length(L),L).
     
 
 
