@@ -1,6 +1,6 @@
 -module(block_act).
 -import (miner_act , [start_M_act/2]).
--import (chain_tools , [validityBlock/2,buildInitChain/1,reconstructing/3,searchBlock/2,checkBlock/1]).
+-import (chain_tools , [validityBlock/2,buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1]).
 -import (block_gossiping_act , [blockGossiping/4,test/0]).
 -import (utils , [sendMessage/2]).
 
@@ -9,7 +9,7 @@
 % TODO : CHIEDERE A SENDER O AMICI IL BLOCCO PRECEDENTE
 
 %! behavior dell'attore che ricostruisce la catena e la notifica a PidB
-chainRestore(PidB,Chain) -> 
+chainRestore(PidRoot,PidB,Chain) -> 
     %? Caso 0 (EASY):
     %?     Chain è vuota. Inserisco il Blocco direttamente
 
@@ -30,12 +30,12 @@ chainRestore(PidB,Chain) ->
     receive  
         {updateChain, NewChain} ->
             % aggiorno la visione della catena a seguito di un nuovo blocco minato da me
-            chainRestore(PidB,NewChain);
+            chainRestore(PidRoot,PidB,NewChain);
         {newBlock,Sender,Blocco} -> 
             case checkBlock(Blocco) of
                 true ->  % blocco valido
                     try 
-                        reconstructing(Blocco,Chain,Sender)            
+                        reconstructing(PidRoot,Blocco,Chain,Sender)            
                     catch
                         {done,NewChain,NewTMined} -> 
                             PidB ! {getPidMiner},
@@ -46,13 +46,13 @@ chainRestore(PidB,Chain) ->
                                     exit(PidM,kill)
                             end,
                             PidB !  {updateMyChain,{NewTMined,NewChain}},
-                            chainRestore(PidB,NewChain);
+                            chainRestore(PidRoot,PidB,NewChain);
                         discarded -> 
                             % Il blocco ricevuto è stato scartato
-                            chainRestore(PidB,Chain)
+                            chainRestore(PidRoot,PidB,Chain)
                     end;
                 false ->
-                    chainRestore(PidB,Chain)
+                    chainRestore(PidRoot,PidB,Chain)
             end
 
     end.
@@ -200,7 +200,7 @@ start_B_act(PidRoot) ->
     % lista di transazione già minate -> T_Mined
     % Attore per la ricostruzione della catena
     PidM = spawn(fun() -> start_M_act(PidRoot,PidB) end),
-    PidRestore = spawn(fun() -> chainRestore(PidB,Chain) end),
+    PidRestore = spawn(fun() -> chainRestore(PidRoot,PidB,Chain) end),
     % Attore per il gossiping 
     sleep(1),
     PidBlockG = spawn(fun() -> 

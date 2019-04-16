@@ -1,7 +1,8 @@
 -module(chain_tools).
--export([buildInitChain/1,reconstructing/3,searchBlock/2,checkBlock/1,validityBlock/2]).
+-export([buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1,validityBlock/2]).
 -import (proof_of_work , [solve/1,check/2]).
 -import (utils , [sendMessage/2]).
+-define(TIMEOUT_TO_ASK, 5000).
 
 
 %%%%%%%%% * PUBLIC *%%%%%%%%
@@ -16,7 +17,7 @@ buildInitChain(PidRoot) ->
     % partendo dalla lista di amici chiedo una catena iniziale
     askChainFriends(FList).
 
-reconstructing(Blocco, Chain,Sender) -> 
+reconstructing(PidRoot,Blocco, Chain,Sender) -> 
     {_,ID_Prev,ListT,_} = Blocco,
     %? Caso 0: Chain Empty 
     case length(Chain) =:= 0 of
@@ -41,7 +42,11 @@ reconstructing(Blocco, Chain,Sender) ->
         none ->
             %? Caso 3: Chain non contiene ID_Prev
             % io:format("~nCaso3: ok~n~n"),
-            searching([], Chain, Blocco, Sender);
+            PidRoot ! {checkFriendsList, self()},
+            FList = receive
+                {myFriendsList, FriendList } -> FriendList -- Sender
+            end,
+            searching([], Chain, Blocco, Sender, FList);
         _ -> 
             % io:format("~nCaso2: ok~n~n"),
             %? Caso 2: ID_Prev fa parte di Chain e quindi Scarto Blocco in quanto vecchio
@@ -125,7 +130,7 @@ otherChainFinished({_,none,_,_},OtherChain,MyChain) ->
     end;
 otherChainFinished(_,_,_) -> none.
 
-searching(OtherChain, MyChain, Blocco, Sender) -> 
+searching(OtherChain, MyChain, Blocco, Sender,FList) -> 
 
     % se Blocco ha come id_prev none mi fermo e decido qui cosa fare:
     % [Blocco] ++ OtherChain == MyChain random
@@ -136,9 +141,9 @@ searching(OtherChain, MyChain, Blocco, Sender) ->
     case searchBlock(ID,MyChain) of
         none ->
             % chiedo il precedenti di Blocco a Sender
-            PrevBlock = searchPrevious(Blocco,Sender),
+            PrevBlock = searchPrevious(Blocco,Sender,FList),
             % continuo la ricerca cercando PrevBlock
-            searching(OtherChain ++ [Blocco], MyChain,PrevBlock,Sender);
+            searching(OtherChain ++ [Blocco], MyChain,PrevBlock,Sender,FList);
         B -> % B è il blocco in comune --> biforcazione trovata
      
             PositionCommonBlock = indexBlock(B,MyChain,1),
@@ -184,7 +189,7 @@ indexBlock(B,[H|T], Index) ->
     end.
 
 % Dato il blocco ritorna il blocco precedente
-searchPrevious({_,ID_Prev,_,_},Sender) ->
+searchPrevious({_,ID_Prev,_,_},Sender,FList) ->
     %! Bloccante max 5 secondi
     Nonce = make_ref(),
     sendMessage(Sender, {get_previous,self(),ID_Prev}),
@@ -196,10 +201,29 @@ searchPrevious({_,ID_Prev,_,_},Sender) ->
             end
     after 
         % se non mi risponde scarto il blocco ricevuto
-        5000 -> throw(discarded)
+        ?TIMEOUT_TO_ASK -> 
+            searchPreviousToFriends(ID_Prev,FList)
     end.
 
-    % costruisco la catena tenendo conto delle transazione all'interno dei blocchi
+% se non ho più amici allora non so più a chi chidere il prev
+searchPreviousToFriends(_,[]) -> throw(discarded);
+searchPreviousToFriends(ID_Prev,FList) -> 
+    [Friend | _] = FList,
+    Nonce = make_ref(),
+    sendMessage(Friend, {get_previous,self(),ID_Prev}),
+    receive 
+        {previous,Nonce,Blocco} -> 
+            case checkBlock(Blocco) of
+                true -> Blocco;
+                false -> throw(discarded)
+            end
+    after 
+        % se non mi risponde scarto il blocco ricevuto
+        ?TIMEOUT_TO_ASK -> 
+            searchPreviousToFriends(ID_Prev,FList--Friend)
+    end.
+
+% costruisco la catena tenendo conto delle transazione all'interno dei blocchi
 getRestChain(Friend,Chain,TList,ID_Prev_Current) ->
     case ID_Prev_Current =:= none of
         % genero un Eccezione e mi fermo in quanto la catena che sto percorrendo è terminata
@@ -218,7 +242,7 @@ getRestChain(Friend,Chain,TList,ID_Prev_Current) ->
             % ho ricevuto il precedente
             {_,ID_blocco_prev,Transaction,_} = PrevBlock,
             getRestChain(Friend,Chain ++ [PrevBlock],Transaction++TList,ID_blocco_prev)
-    after 5000 -> throw(none)
+    after ?TIMEOUT_TO_ASK -> throw(none)
     end.
 
 % chiede a Friend una catena entro un N secondi 
@@ -233,7 +257,7 @@ getChain(Friend) ->
             % ho ricevuto la testa di una catena e continuo a chiedere il resto a Friend
             {_,ID_Prev,Transaction,_} = Blocco,
             getRestChain(Friend,[Blocco],[Transaction],ID_Prev)
-        after 5000 -> throw(none)
+        after ?TIMEOUT_TO_ASK -> throw(none)
     end.
 
 askChainFriends(FList) ->
