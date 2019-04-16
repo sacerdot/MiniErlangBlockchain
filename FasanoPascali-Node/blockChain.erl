@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(blockChain).
 -author("andrea").
--export([managerTransactions/4, managerBlock/4]).
+-export([managerTransactions/4, managerBlock/5]).
 
 %% gestisce le transazioni
 managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsInBlocks) ->
@@ -35,17 +35,21 @@ managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsIn
 %% gestisce i blocchi
 managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, IdBlocks) ->
   receive
-    {update, Sender, Block} ->
-
-%%  todo     controllo se lo conosco
-%%         Se non lo conosco chiamo proof_of_work:check()
-%%         Se è verificato
-
-      PIDManagerFriends ! {gossipingMessage, {update, PIDMain, Block}} %% ritrasmetto agli amici
+    {update, Sender, {IDBlock, IDPreviousBlock, BlockTransactions, Solution}} ->
+      Block = {IDBlock, IDPreviousBlock, BlockTransactions, Solution},
+      case lists:member(IDBlock, IdBlocks) of
+        true -> do_nothing;
+        false -> case proof_of_work:check({IDPreviousBlock, BlockTransactions}, Solution) of
+                   false ->
+                     do_nothing;
+                   true ->
+                     PIDManagerFriends ! {gossipingMessage, {update, PIDMain, Block}} %% ritrasmetto agli amici
 %%            fate update della vostra visione della catena, eventualmente usando
 %%            l'algoritmo di ricostruzione della catena (chiedendo al Sender o agli amici) e
 %%            decidendo quale è la catena più lunga
-  ;
+
+                 end
+      end;
 
     {get_previous, Sender, Nonce, IdBlockPrevious} ->
       Block = block_con_IdBlockPrevious,%% todo
