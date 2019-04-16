@@ -8,7 +8,14 @@
 %%%-------------------------------------------------------------------
 -module(blockChain).
 -author("andrea").
--export([managerTransactions/4, managerBlock/5]).
+-export([managerTransactions/4, managerBlock/4]).
+
+
+%% todo testare tutto
+%% todo update della visione della catena
+%% todo algoritmo di ricostruzione della catena
+%% todo mining blocco
+
 
 %% gestisce le transazioni
 managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsInBlocks) ->
@@ -23,8 +30,8 @@ managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsIn
     {pop, Transactions} ->
       managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions--Transactions, TransactionsInBlocks ++ Transactions);
     {updateTransactions, TransactionsToRemove, TransactionsToAdd} ->
-      managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions--TransactionsToRemove++TransactionsToAdd,
-        TransactionsInBlocks--TransactionsToAdd++TransactionsToRemove)
+      managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions--TransactionsToRemove ++ TransactionsToAdd,
+        TransactionsInBlocks--TransactionsToAdd ++ TransactionsToRemove)
   end.
 
 
@@ -33,28 +40,29 @@ managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsIn
 %%proof_of_work:check({IDblocco_precedente,Lista_di_transazioni}, Soluzione)
 
 %% gestisce i blocchi
-managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, IdBlocks) ->
+managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
   receive
     {update, Sender, {IDBlock, IDPreviousBlock, BlockTransactions, Solution}} ->
       Block = {IDBlock, IDPreviousBlock, BlockTransactions, Solution},
-      case lists:member(IDBlock, IdBlocks) of
-        true -> do_nothing;
-        false -> case proof_of_work:check({IDPreviousBlock, BlockTransactions}, Solution) of
-                   false ->
-                     do_nothing;
-                   true ->
-                     PIDManagerFriends ! {gossipingMessage, {update, PIDMain, Block}} %% ritrasmetto agli amici
+      case index_of(IDBlock, BlockChain) of
+        not_found -> case proof_of_work:check({IDPreviousBlock, BlockTransactions}, Solution) of
+                       false ->
+                         do_nothing;
+                       true ->
+                         PIDManagerFriends ! {gossipingMessage, {update, PIDMain, Block}} %% ritrasmetto agli amici
 %%            fate update della vostra visione della catena, eventualmente usando
 %%            l'algoritmo di ricostruzione della catena (chiedendo al Sender o agli amici) e
 %%            decidendo quale è la catena più lunga
 
-                 end
+                     end;
+        N -> do_nothing
       end;
 
     {get_previous, Sender, Nonce, IdBlockPrevious} ->
-      Block = block_con_IdBlockPrevious,%% todo
-
-      Sender ! {previous, Nonce, Block};
+      case index_of(IdBlockPrevious, BlockChain) of
+        not_found -> do_nothing;
+        N -> Sender ! {previous, Nonce, lists:nth(N, BlockChain)}
+      end;
 
     {previous, Nonce, Block} ->
       TempNonce = make_ref(),
@@ -79,4 +87,11 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, IdBlocks) 
       after 5000 -> self() ! {head, Nonce, Block}
       end
   end,
-  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, IdBlocks).
+  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain).
+
+
+index_of(Item, List) -> index_of(Item, List, 1).
+index_of(_, [], _) -> not_found;
+index_of(Item, [{Item, _, _, _} | _], Index) -> Index;
+%%index_of(Item, [Item|_], Index) -> Index;
+index_of(Item, [_ | Tl], Index) -> index_of(Item, Tl, Index + 1).
