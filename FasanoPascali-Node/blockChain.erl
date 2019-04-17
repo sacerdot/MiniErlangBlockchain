@@ -29,9 +29,17 @@ managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsIn
       end;
     {pop, Transactions} ->
       managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions--Transactions, TransactionsInBlocks ++ Transactions);
+
     {updateTransactions, TransactionsToRemove, TransactionsToAdd} ->
       managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions--TransactionsToRemove ++ TransactionsToAdd,
-        TransactionsInBlocks--TransactionsToAdd ++ TransactionsToRemove)
+        TransactionsInBlocks--TransactionsToAdd ++ TransactionsToRemove);
+
+    {getTransactionsToMine, PIDSender, Nonce} ->
+      TransactionsChosen = case length(PoolTransactions) of
+                             N when N > 10 -> getNRandomTransactions([], PoolTransactions, 10);
+                             _ -> PoolTransactions
+                           end,
+      PIDSender ! {transactionsToMine, Nonce, TransactionsChosen}
   end.
 
 
@@ -95,3 +103,36 @@ index_of(_, [], _) -> not_found;
 index_of(Item, [{Item, _, _, _} | _], Index) -> Index;
 %%index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_ | Tl], Index) -> index_of(Item, Tl, Index + 1).
+
+mining(PIDManagerTransactions, PIDManagerBlocks) ->
+  Nonce = make_ref(),
+  PIDManagerTransactions ! {getTransactionsToMine, self(), Nonce},
+  receive
+    {transactionsToMine, Nonce, TransactionsToMine} ->
+      Nonce2 = make_ref(),
+      PIDManagerBlocks ! {get_head, self(), Nonce2},
+      receive
+        {head, Nonce2, Block} ->
+          IDHeadBlock = element(1,Block),
+          Solution = proof_of_work:solve(IDHeadBlock, TransactionsToMine),
+          IDNewBlock = make_ref(),
+          NewBlock = {IDNewBlock, IDHeadBlock, TransactionsToMine, Solution},
+          PIDManagerBlocks ! {update, managerMining, NewBlock}
+      end
+  end.
+
+managerHead(MainPID) ->
+  receive
+    {pong, Sender, TeacherPID} when Sender /= TeacherPID ->
+      do_nothing
+  after 60000 -> MainPID ! {maybeNoFollowers}
+  end.
+
+
+getNRandomTransactions(TransactionsChosen, PoolTransactions, N) ->
+  case N of
+    N when N =< 0 -> TransactionsChosen;
+    _ ->  I = rand:uniform(length(PoolTransactions)),
+      NewFriend = lists:nth(I, PoolTransactions),
+      getNRandomFriend(TransactionsChosen ++ [NewFriend], PoolTransactions -- [NewFriend], N - 1)
+  end.

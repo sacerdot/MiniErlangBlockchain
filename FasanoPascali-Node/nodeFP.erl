@@ -26,20 +26,22 @@ init() ->
   ManagerFriends = spawn_link(topologyFP, newFriendsRequest, [PID, [], 0, ManagerNonce, ManagerMessage]),
   ManagerTransaction = spawn_link(blockChain, managerTransactions, [PID, ManagerFriends, [], []]),
   ManagerBlock = spawn_link(blockChain, managerBlock, [PID, ManagerFriends, ManagerNonce, []]),
-  loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock).
+  %%attore che si occupa di tenere aggiornata la mia blockchain in caso non abbiamo amici (si cerca di capire se non abbiamo amici quando non riceviamo ping per tot tempo)
+  ManagerHead = spawn_link(blockChain, managerHead, [PID]),
+  loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead).
 
-loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock) ->
+loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead) ->
   NonceGlobalSend = make_ref(),
-  global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
+  TeacherPID = global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
   receive
     {friends, NonceGlobalSend, FriendsOfFriend} ->
       ManagerFriends ! {friend, FriendsOfFriend}
-  after 10000 -> loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock)
+  after 10000 -> loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead)
   end,
-  loopMain(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock).
+  loopMain(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead, TeacherPID).
 
 
-loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock) ->
+loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID) ->
   receive
     {friends, Nonce, FriendsOfFriend} ->
       TempNonce = make_ref(),
@@ -67,6 +69,10 @@ loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
       PIDManagerBlock ! {get_head, Mittente, Nonce};
 
     {ping, Sender, Ref} ->
-      Sender ! {pong, Ref}
+      PIDManagerHead ! {pong, Sender, TeacherPID},
+      Sender ! {pong, Ref};
+
+    {maybeNoFollowers} ->
+      todo %%todo
   end,
-  loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock).
+  loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID).
