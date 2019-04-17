@@ -2,7 +2,7 @@
 -import (miner_act , [start_M_act/2]).
 -import (chain_tools , [validityBlock/2,buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1]).
 -import (block_gossiping_act , [blockGossiping/4,test/0]).
--import (utils , [sendMessage/2]).
+-import (utils , [sendMessage/2,sleep/1]).
 
 -export([start_B_act/1]).
 
@@ -188,7 +188,6 @@ compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) 
         lastcase -> nothing_to_do
     end.
 
-sleep(N) -> receive after N*1000 -> ok end.
 
 start_B_act(PidRoot) -> 
     sleep(10),

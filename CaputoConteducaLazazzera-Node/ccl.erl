@@ -2,7 +2,7 @@
 -import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
 -import (block_act , [start_B_act/1]).
--import (utils , [sendMessage/2]).
+-import (utils , [sendMessage/2,sleep/1]).
 
 
 -export([test/0,start/1]).
@@ -16,14 +16,16 @@ load_module_act() ->
     compile:file('actors/block_act.erl'),
     compile:file('actors/block_gossiping_act.erl'), 
     compile:file('actors/chain_tools.erl'), 
-    compile:file('actors/miner_act.erl'),
+    compile:file('actors/miner_act.erl'), 
     compile:file('utils.erl'),
+    compile:file('teacher_node.erl'),
+    compile:file('proof_of_work.erl'),
+
     ok.  
 
 
 
 
-sleep(N) -> receive after N*1000 -> ok end.
 % Node è il nodo da monitorare
 % Main è il nodo che vuole essere avvisato della morte di Node
 % il watcher ogni 5s fa ping a Node 
@@ -43,26 +45,27 @@ loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) ->
     receive 
         %! %%%%%%%%% DEBUG %%%%%%%%%%%
         {addNewNonce, Nonce} ->
-            % io:format("ho aggiunto un nonce ~n"),
             loop(FriendsList,NameNode,PidT,PidB,PidC,Nonces++[Nonce]);
         {removeNonce, Nonce} ->
-            % io:format("ho rimosso un nonce ~n"),
             loop(FriendsList,NameNode,PidT,PidB,PidC,Nonces--[Nonce]);
         {checkFriendsList, CheckAct} ->
             CheckAct ! {myFriendsList, FriendsList},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
         {printT} ->
+            % lista transazioni arrivate
             PidT ! {printT},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
+        {printTM} ->
+            % lista transazioni da minare
+            PidB ! {printTM},
+            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);  
+    
         {print} -> 
             io:format("[~p, ~p]: ha questi amici: ~p~n",[self(),NameNode, FriendsList]),
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces); 
         {printC} ->
             PidB ! {printC},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
-        {printTM} ->
-            PidB ! {printTM},
-            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);  
 
         %!%%%%%% Mantenimento Topologia %%%%%%%
         {ping, Mittente, Nonce} -> % sono vivo
@@ -163,7 +166,13 @@ start(NameNode) ->
 
 watchFriends(NewItems,Main) -> [spawn(fun()-> watch(Main,X) end) || X<-NewItems].
 
+sendT(Dest,Payload) ->
+    Dest ! {push, {make_ref(), Payload}},
+    io:format("> Send ~p to ~p~n",[Payload,Dest]).
+    
+
 test() ->  
+
     io:format("Versione 1.5~n"),
     TIME = 2,
     TIME_TO_TRANS = 3,
@@ -188,27 +197,18 @@ test() ->
     % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     sleep(5),
     io:format("Testing Transaction...~n"),
-    Payload1 = "Ho comprato il pane",
-    N1 ! {push, {make_ref(), Payload1}},
+    sendT(N1,"Ho comprato il pane"),
     sleep(TIME_TO_TRANS),
-    Payload2 = "Ho comprato il pesce",
-    N1 ! {push, {make_ref(), Payload2}},
-    
+    sendT(N1,"Ho comprato il pesce"),
     sleep(TIME_TO_TRANS),
-    Payload3 = "Ho comprato il latte",
-    N2 ! {push, {make_ref(), Payload3}},
+    sendT(N2,"Ho comprato il latte"),
+    sleep(TIME_TO_TRANS),
+    sendT(N3,"Ho comprato il carne"),
+    sleep(TIME_TO_TRANS),
+    sendT(N2,"Ho comprato il pesto"),
+    sleep(TIME_TO_TRANS),
+    sendT(N2,"Ho comprato il succo"),
 
-    sleep(TIME_TO_TRANS),
-    Payload4 = "Ho comprato la carne",
-    N3 ! {push, {make_ref(), Payload4}},
-    
-    sleep(TIME_TO_TRANS),
-    Payload5 = "Ho comprato il pesto",
-    N2 ! {push, {make_ref(), Payload5}},
-    
-    sleep(TIME_TO_TRANS),
-    Payload6 = "Ho comprato il succo",
-    N1 ! {push, {make_ref(), Payload6}},
 
     io:format("End Transaction Send ~n"),
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -216,34 +216,73 @@ test() ->
     io:format("New Actors ~n"),
     N5 = spawn(?MODULE,start,["N5"]),
     io:format("~p -> ~p~n",["N5",N5]),
-        
+    io:format("~n~nASPETTO CHE N5 COSTRUISCA LA SUA CATENA~n~n"),
+    sleep(50),
     sleep(TIME_TO_TRANS),
-    Payload7 = "Ho comprato il vino",
-    N5 ! {push, {make_ref(), Payload7}},
+    sendT(N1,"Ho comprato il vino"),
+ 
+    io:format("~n!!!! Controllare che n5 non ha il vino~n"),
 
+    io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    io:format("~p -> ~p~n",["N4",N4]),
+    io:format("~p -> ~p~n",["N5",N5]),
+    N1 ! {printC},
+    N2 ! {printC},
+    N3 ! {printC},    
+    N4 ! {printC},    
+    N5 ! {printC},
+    sleep(50),
 
-    spawn(fun()->
-        PRINT = fun PRINT() ->
-            sleep(15),
-            io:format("----- ACTORS LIST ------~n"),
-            io:format("~p -> ~p~n",["N1",N1]),
-            io:format("~p -> ~p~n",["N2",N2]),
-            io:format("~p -> ~p~n",["N3",N3]),
-            io:format("~p -> ~p~n",["N4",N4]),
-            io:format("~p -> ~p~n",["N5",N5]),
-            io:format("-------------------------~n"),
-            N2 ! {printC},
-            N3 ! {printC},    
-            N4 ! {printC},    
-            N5 ! {printC},
-            PRINT()
-        end,
-        PRINT()    
-     end),
-    
+    sendT(N5,"Ho comprato la pizza"),
+    io:format("Controllare che tutti hanno la pizza e il vino ma n5 ha solo pizza~n"),
+    io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    io:format("~p -> ~p~n",["N4",N4]),
+    io:format("~p -> ~p~n",["N5",N5]),
+    N1 ! {printC},
+    N2 ! {printC},
+    N3 ! {printC},    
+    N4 ! {printC},    
+    N5 ! {printC},
+    sleep(40),
 
-    sleep(20),
     exit(N1, kill),
-    sleep(15),
-    Payload8 = "Ho comprato la pizza",
-    N2 ! {push, {make_ref(), Payload8}}.
+    sleep(20),
+
+    sendT(N5,"Ho comprato la coppa"),
+    io:format("Controllare che tutti hanno tutto~n"),
+    
+    % io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    io:format("~p -> ~p~n",["N4",N4]),
+    io:format("~p -> ~p~n",["N5",N5]),
+    % N1 ! {printC},
+    N2 ! {printC},
+    N3 ! {printC},    
+    N4 ! {printC},    
+    N5 ! {printC},
+
+    io:format("Finito").
+
+   % PRINT = fun PRINT() ->
+    %         sleep(15),
+    %         io:format("----- ACTORS LIST ------~n"),
+    %         io:format("~p -> ~p~n",["N1",N1]),
+    %         io:format("~p -> ~p~n",["N2",N2]),
+    %         io:format("~p -> ~p~n",["N3",N3]),
+    %         io:format("~p -> ~p~n",["N4",N4]),
+    %         io:format("~p -> ~p~n",["N5",N5]),
+    %         io:format("-------------------------~n"),
+    %         N2 ! {printC},
+    %         N3 ! {printC},    
+    %         N4 ! {printC},    
+    %         N5 ! {printC},
+    %         PRINT()
+    %     end,
+
+    
+    % exit(N2, kill).

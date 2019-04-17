@@ -1,10 +1,9 @@
 -module(transaction_act).
 -export([start_T_act/2]).
--import (utils , [sendMessage/2]).
+-import (utils , [sendMessage/2,sleep/1]).
 
 %!%%%%%%%  behavior dell'attore che gestisce le transizioni %%%%%%%%
 % Transaction = {ID,Payload}
-
 
 compute(PidRoot,ListT,PidB) -> 
     receive
