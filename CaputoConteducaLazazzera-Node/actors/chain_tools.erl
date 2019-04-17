@@ -1,7 +1,7 @@
 -module(chain_tools).
 -export([buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1,validityBlock/2]).
 -import (proof_of_work , [solve/1,check/2]).
--import (utils , [sendMessage/2]).
+-import (utils , [sendMessage/2,sleep/1]).
 -define(TIMEOUT_TO_ASK, 5000).
 
 
@@ -44,7 +44,7 @@ reconstructing(PidRoot,Blocco, Chain,Sender) ->
             % io:format("~nCaso3: ok~n~n"),
             PidRoot ! {checkFriendsList, self()},
             FList = receive
-                {myFriendsList, FriendList } -> FriendList -- Sender
+                {myFriendsList, FriendList } -> FriendList -- [Sender]
             end,
             searching([], Chain, Blocco, Sender, FList);
         _ -> 
@@ -220,7 +220,7 @@ searchPreviousToFriends(ID_Prev,FList) ->
     after 
         % se non mi risponde scarto il blocco ricevuto
         ?TIMEOUT_TO_ASK -> 
-            searchPreviousToFriends(ID_Prev,FList--Friend)
+            searchPreviousToFriends(ID_Prev,FList--[Friend])
     end.
 
 % costruisco la catena tenendo conto delle transazione all'interno dei blocchi

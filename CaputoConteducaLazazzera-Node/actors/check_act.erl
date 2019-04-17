@@ -1,8 +1,7 @@
 -module(check_act).
 -export([start_C_act/1, askProfAfterTimeout/1]).
--import (utils , [sendMessage/2]).
+-import (utils , [sendMessage/2,sleep/1]).
 
-sleep(N) -> receive after N*1000 -> ok end.
 
 %%%%%%%%  behavior dell'attore che controlla gli amici di PID %%%%%%%%
 start_C_act(PidRoot) -> 

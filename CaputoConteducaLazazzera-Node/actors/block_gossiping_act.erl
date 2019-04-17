@@ -1,6 +1,6 @@
 -module(block_gossiping_act).
 -export([blockGossiping/4]).
--import (utils , [sendMessage/2]).
+-import (utils , [sendMessage/2,sleep/1]).
 
 %! behavior dell'attore che ha il compito di :
 %! - fare gossiping del Blocco ricevuto (chiedendo a PidRoot la lista di amici)
