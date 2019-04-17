@@ -3,18 +3,28 @@
 -export([main/0, test/0]).
 
 % This is blockchain node, based on teacher_node.
-% TODO: Add function to lose messages
 % TODO: Clean up heads and blocks
 % TODO: Maintain a friends list of exactly 3 nodes
-% TODO: Make teacher_node a variable
 % TODO: fix issue with asking friends (going crazy).
 
-sleep(N) -> receive  after N * 1000 -> ok end.
+-define(TEACHERNODE, teacher@Sysadmin).
+
+msg_anomaly(Sender, Msg) ->
+  X = rand:uniform(10),
+  if ( X == 1 ) -> none; %Lost msg
+     ( X == 10 ) -> Sender ! Msg, Sender ! Msg; %Duplicate msg
+     true -> Sender ! Msg %No anomaly
+  end.
+
+sleep(N) ->
+  receive
+  after N * 1000 -> ok
+  end.
 
 watch(Main, Node) ->
   sleep(10),
   Ref = make_ref(),
-  Node ! {ping, self(), Ref},
+  msg_anomaly(Node, {ping, self(), Ref}),
   receive
     {pong, Ref} -> watch(Main, Node)
   after 2000 -> Main ! {dead, Node}
@@ -54,7 +64,7 @@ loop(Nodes, Old_nonces) ->
   Nonces = [check_friends_list(Nodes, Old_nonces) | Old_nonces],
   receive
     {ping, Sender, Ref} ->
-      Sender ! {pong, Ref}, loop(Nodes, Nonces);
+      msg_anomaly(Sender, {pong, Ref}), loop(Nodes, Nonces);
     {request_friends, Teacher} ->
       New_nonces = case length(Nodes) < 3 of
                      true ->
@@ -68,7 +78,7 @@ loop(Nodes, Old_nonces) ->
       loop(Nodes, New_nonces -- [{int_friends, 1}]);
     {get_friends, Sender, Nonce} ->
       New_nodes = add_nodes([Sender], Nodes),
-      Sender ! {friends, Nonce, New_nodes},
+      msg_anomaly(Sender , {friends, Nonce, New_nodes}),
       loop(New_nodes, Nonces);
     {remove_nonce, Rm_nonces} ->
       loop(Nodes, Nonces -- Rm_nonces);
@@ -96,7 +106,7 @@ loop(Nodes, Old_nonces) ->
       io:format("Dead node ~p~n", [Node]),
       loop(Nodes -- [Node], Nonces);
     {get_previous, Sender, Nonce, Prev_block_id} ->
-      storage ! {get_previous, Nonce, Sender, Prev_block_id},
+      storage  ! {get_previous, Nonce, Sender, Prev_block_id},
       loop(Nodes, Nonces);
     {previous, Nonce, Block} ->
       case lists:member({previous, Nonce}, Nonces) of
@@ -123,7 +133,8 @@ loop(Nodes, Old_nonces) ->
       end;
     %Alogritm for gossiping blocks
     {update, Block} ->
-      storage ! {add_block, Block}, loop(Nodes, Nonces);
+      storage ! {add_block, Block},
+      loop(Nodes, Nonces);
     %Alogritm for gossiping transections
     {push, Transaction} ->
       storage ! {add_transaction, Transaction},
@@ -138,7 +149,7 @@ loop(Nodes, Old_nonces) ->
     {request_previous, Prev_block_id} ->
       % Ask a random friend for the block
       Ref = make_ref(),
-      lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_previous, self(), Ref, Prev_block_id},
+      msg_anomaly(lists:nth(rand:uniform(length(Nodes)), Nodes) , {get_previous, self(), Ref, Prev_block_id}),
       loop(Nodes, [Ref | Nonces])
   end.
 
@@ -173,7 +184,7 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
     {add_transaction, Transaction} ->
       io:format("Transection: ~p~n", [Transaction]),
       case lists:member(Transaction, Transactions ++ Trans_mining) of
-           false ->
+        false ->
           New_transactions = case check_transection(Blocks,
                                                     Transaction)
                              of
@@ -200,11 +211,11 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
         true -> storage_loop(Blocks, Heads, Transactions, Trans_mining)
       end;
     {get_previous, Nonce, Sender, Prev_block_id} ->
-      Sender !
-      {previous, Nonce, get_block(Blocks, Prev_block_id)},
+      msg_anomaly(Sender,
+                  {previous, Nonce, get_block(Blocks, Prev_block_id)}),
       storage_loop(Blocks, Heads, Transactions, Trans_mining);
     {get_head, Sender, Nonce} ->
-      Sender ! {head, Nonce, get_longest_head(Heads)},
+      msg_anomaly(Sender, {head, Nonce, get_longest_head(Heads)}),
       storage_loop(Blocks, Heads, Transactions, Trans_mining)
   end.
 
@@ -213,11 +224,11 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
 request_head_all([]) -> [];
 request_head_all([H | T]) ->
   Nonce = make_ref(),
-  H ! {get_head, self(), Nonce},
+  msg_anomaly(H , {get_head, self(), Nonce}),
   [{head, Nonce} | request_head_all(T)].
 
 send_all([], _) -> none;
-send_all([H | T], Data) -> H ! Data, send_all(T, Data).
+send_all([H | T], Data) -> msg_anomaly(H , Data), send_all(T, Data).
 
 % Explore every chain to check if we got all blocks now
 explore_all_chains(_, []) -> none;
@@ -265,8 +276,7 @@ mine_block({Id, Transactions}) ->
   io:format("Started mining~n"),
   Solution = proof_of_work:solve({Id, Transactions}),
   io:format("Finished mining~n"),
-  storage !
-  {add_block, {make_ref(), Id, Transactions, Solution}}.
+  storage ! {add_block, {make_ref(), Id, Transactions, Solution}}.
 
 % Checks if block is new and valid
 check_block(Blocks,
@@ -340,8 +350,8 @@ get_block([{Block_id, Prev_block_id,
 ask_teacher(Self) ->
   Ref = make_ref(),
   io:format("Ask teacher for more friends~n"),
-  {teacher_node, teacher_node@librem} !
-  {get_friends, Self, Ref},
+  msg_anomaly({teacher_node, ?TEACHERNODE} ,
+              {get_friends, Self, Ref}),
   {friends, Ref}.
 
 ask_friend(Main, Nodes) ->
@@ -349,7 +359,7 @@ ask_friend(Main, Nodes) ->
   io:format("I only have ~p friends. Ask a friend "
             "for more friends~n",
             [length(Nodes)]),
-  lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_friends, Main, Ref},
+  msg_anomaly( lists:nth(rand:uniform(length(Nodes)), Nodes) ,  {get_friends, Main, Ref}),
   {friends, Ref}.
 
 add_nodes([], Nodes) -> Nodes;
