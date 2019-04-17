@@ -38,6 +38,7 @@ chainRestore(PidRoot,PidB,Chain) ->
                         reconstructing(PidRoot,Blocco,Chain,Sender)            
                     catch
                         {done,NewChain,NewTMined} -> 
+
                             PidB ! {getPidMiner},
                             receive 
                                 {pidMiner, PidM} ->
@@ -103,11 +104,11 @@ compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) 
             % se ci sono transazioni già minate o T in T_In_Mining non lo accetto 
             % ma tengo in considerazione quelle
             % transazioni che non ho (nè in T_ToMine ne in T_Mined)
-            {NewToMine, NewTMined, Reconstr} = validityBlock({T_ToMine,T_Mined},Blocco), %in chain_tools.erl
+            % {NewToMine, NewTMined, Reconstr} = validityBlock({T_ToMine,T_Mined},Blocco), %in chain_tools.erl
             % mando a PidBlockG il blocco che verifica se fare gossiping
             % avviare la fase di ricostruzione della catena
-            PidBlockG ! {updateLocal,Sender,Blocco,Reconstr},
-            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{NewToMine,NewTMined},T_In_Mining);
+            PidBlockG ! {updateLocal,Sender,Blocco,true},
+            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
         {get_previous, Mittente, Nonce, ID_Blocco} ->
             % il seguente attore cerca nella catena il blocco con ID_Blocco
             % e se lo trova risponde, altrimenti no

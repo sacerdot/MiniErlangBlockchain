@@ -266,6 +266,21 @@ test() ->
     N4 ! {printC},    
     N5 ! {printC},
 
+
+    sleep(50),
+    io:format("Ultima stampa"),
+
+    % io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    io:format("~p -> ~p~n",["N4",N4]),
+    io:format("~p -> ~p~n",["N5",N5]),
+    % N1 ! {printC},
+    N2 ! {printC},
+    N3 ! {printC},    
+    N4 ! {printC},    
+    N5 ! {printC},
+
     io:format("Finito").
 
    % PRINT = fun PRINT() ->
