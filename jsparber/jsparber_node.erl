@@ -7,6 +7,7 @@
 % TODO: Maintain a friends list of exactly 3 nodes
 
 -define(TEACHERNODE, teacher_node@librem).
+-define(DEAD_TOLERANZ, 3).
 
 msg_anomaly(Sender, Msg) ->
   X = rand:uniform(10),
@@ -20,13 +21,18 @@ sleep(N) ->
   after N * 1000 -> ok
   end.
 
-watch(Main, Node) ->
+watch(Main, Node) -> spawn(fun () -> watch(Main, Node, ?DEAD_TOLERANZ) end).
+watch(Main, Node, Toleranz) ->
   sleep(10),
   Ref = make_ref(),
   msg_anomaly(Node, {ping, self(), Ref}),
   receive
-    {pong, Ref} -> watch(Main, Node)
-  after 2000 -> Main ! {dead, Node}
+    {pong, Ref} -> watch(Main, Node, ?DEAD_TOLERANZ)
+  after 2000 ->
+          case Toleranz =< 0 of
+            true ->  Main ! {dead, Node};
+            false -> watch(Main, Node, Toleranz - 1)
+          end
   end.
 
 % This removes Nonces after a timeout of 2 secounds
@@ -370,7 +376,7 @@ add_nodes([H | T], Nodes) ->
          false ->
            io:format("New node ~p~n", [H]),
            Self = self(),
-           spawn(fun () -> watch(Self, H) end),
+           watch(Self, H),
            add_nodes(T, [H | Nodes])
        end;
      true -> add_nodes(T, Nodes)
