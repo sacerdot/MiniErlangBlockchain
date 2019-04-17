@@ -11,10 +11,16 @@
 -export([managerTransactions/4, managerBlock/4]).
 
 
+%%Blocco= {IDnuovo_blocco,IDblocco_precedente, Lista_di_transazioni, Soluzione}
+%%Soluzione= proof_of_work:solve({IDblocco_precedente,Lista_di_transazioni})
+%%proof_of_work:check({IDblocco_precedente,Lista_di_transazioni}, Soluzione)
+
+
 %% todo testare tutto
 %% todo update della visione della catena
 %% todo algoritmo di ricostruzione della catena
 %% todo mining blocco
+%% todo se non ricevo blocchi per X tempo ciedo la testa
 
 
 %% gestisce le transazioni
@@ -43,25 +49,51 @@ managerTransactions(PIDMain, PIDManagerFriends, PoolTransactions, TransactionsIn
   end.
 
 
-%%Blocco= {IDnuovo_blocco,IDblocco_precedente, Lista_di_transazioni, Soluzione}
-%%Soluzione= proof_of_work:solve({IDblocco_precedente,Lista_di_transazioni})
-%%proof_of_work:check({IDblocco_precedente,Lista_di_transazioni}, Soluzione)
+
+rebuildBlockChain(PIDManagerBlock, PIDManagerFriends) ->
+  receive
+    {rebuild, NewBlockChain} ->%% NewBlockChain inizialmente ha solo il nuovo blocco da cui partire l ricostruzione
+%%      prendo ultimo elemento di NewBlockChain e ri-itero dopo aver inviato i mess
+    todo %% todo
+  end.
+%%establishBlockChainPlusLong(NewBlockChain, OldBlockChain) ->
+%%  -> ;
+%%    true ->
+%%  end
+%%
+%%.
+
+managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
+  RebuildBlockChain = spawn_link(blockChain, rebuildBlockChain, [self(), PIDManagerFriends]),
+  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, RebuildBlockChain).
+
 
 %% gestisce i blocchi
-managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
+managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, RebuildBlockChain) ->
   receive
     {update, Sender, {IDBlock, IDPreviousBlock, BlockTransactions, Solution}} ->
       Block = {IDBlock, IDPreviousBlock, BlockTransactions, Solution},
       case index_of(IDBlock, BlockChain) of
         not_found -> case proof_of_work:check({IDPreviousBlock, BlockTransactions}, Solution) of
-                       false ->
-                         do_nothing;
+                       false -> do_nothing;
                        true ->
-                         PIDManagerFriends ! {gossipingMessage, {update, PIDMain, Block}} %% ritrasmetto agli amici
-%%            fate update della vostra visione della catena, eventualmente usando
+                         %% todo kill attore mining
+
+
+                         PIDManagerFriends ! {gossipingMessage, {update, PIDMain, Block}}, %% ritrasmetto agli amici
+                         %% update della vostra visione della catena, eventualmente usando
+                         case equals(IDPreviousBlock, BlockChain) of %% controll che l'id della testa di BlockChain è uguale a IDPreviousBlock
+                           ok ->
+                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain ++ [Block], RebuildBlockChain);
+                           false ->
+                             RebuildBlockChain ! {rebuild, [Block]}
+
 %%            l'algoritmo di ricostruzione della catena (chiedendo al Sender o agli amici) e
 %%            decidendo quale è la catena più lunga
+%%            rimuovo transazioni
+                         end
 
+                       %% todo start attore mining
                      end;
         N -> do_nothing
       end;
@@ -93,9 +125,24 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain) ->
         {nonce, ok, TempNonce} -> ok %% todo
 
       after 5000 -> self() ! {head, Nonce, Block}
+      end;
+
+    {isBlockOfBlockChain, NewPartBlockChain, Sender} ->
+      BlockFork = lists:nth(1, NewPartBlockChain),
+      case index_of(BlockFork, BlockChain) of
+        not_found -> RebuildBlockChain ! {rebuild, [NewPartBlockChain]};
+        N ->
+          NewBlockChain = lists:sublist(BlockChain, N) ++ NewPartBlockChain,
+          LengthBC = lists:length(BlockChain),
+          LengthNewBC = lists:length(NewBlockChain),
+          if
+            LengthBC < LengthNewBC ->
+              managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, NewBlockChain, RebuildBlockChain);
+            true -> managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, RebuildBlockChain)
+          end
       end
   end,
-  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain).
+  managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, BlockChain, RebuildBlockChain).
 
 
 index_of(Item, List) -> index_of(Item, List, 1).
@@ -103,6 +150,11 @@ index_of(_, [], _) -> not_found;
 index_of(Item, [{Item, _, _, _} | _], Index) -> Index;
 %%index_of(Item, [Item|_], Index) -> Index;
 index_of(Item, [_ | Tl], Index) -> index_of(Item, Tl, Index + 1).
+
+
+equals(Item, Block) -> index_of(check, Item, Block).
+equals(check, Item, [{Item, _, _, _} | _]) -> ok;
+equals(check, Item, [_ | Tl]) -> none.
 
 mining(PIDManagerTransactions, PIDManagerBlocks) ->
   Nonce = make_ref(),
