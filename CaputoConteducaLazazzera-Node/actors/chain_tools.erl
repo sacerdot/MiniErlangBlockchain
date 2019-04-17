@@ -130,6 +130,19 @@ otherChainFinished({_,none,_,_},OtherChain,MyChain) ->
     end;
 otherChainFinished(_,_,_) -> none.
 
+checkIfContainsTrans(ChainCommon,OtherChain) ->
+    TInCommonChain = lists:flatmap(fun(A)->{_,_,X}=A, X end,ChainCommon),
+    TInOtherChain = lists:flatmap(fun(A)->{_,_,X}=A, X end,OtherChain),
+    SetTInCommonChain = sets:from_list(TInCommonChain),
+    SetTInOtherChain = sets:from_list(TInOtherChain),
+    Intersection = sets:intersection(SetTInCommonChain,SetTInOtherChain),
+    case sets:size(Intersection) of
+        0 -> false;
+        _ -> true
+    end.
+% se l'altra catena è maggiore della nostra e c'è almeno una T in otherChain 
+% che è già nella parte comune allora scarto l'altra, altrimenti la accetto e aggiorno T mined
+% se OtherChain è < stretto della mia accetto la mia
 searching(OtherChain, MyChain, Blocco, Sender,FList) -> 
 
     % se Blocco ha come id_prev none mi fermo e decido qui cosa fare:
@@ -145,34 +158,42 @@ searching(OtherChain, MyChain, Blocco, Sender,FList) ->
             % continuo la ricerca cercando PrevBlock
             searching(OtherChain ++ [Blocco], MyChain,PrevBlock,Sender,FList);
         B -> % B è il blocco in comune --> biforcazione trovata
-     
             PositionCommonBlock = indexBlock(B,MyChain,1),
+            ChainCommon = lists:nthtail(PositionCommonBlock-1, MyChain),
             LengthMyChainToConfr = PositionCommonBlock - 1,
             LengthOtherChainToConfr = length(OtherChain),
 
             case LengthOtherChainToConfr > LengthMyChainToConfr of
                 true ->
-                    otherChainAccepted(MyChain,OtherChain,PositionCommonBlock);
-                false-> 
-                    % Se hanno la stessa dim
-                    case LengthOtherChainToConfr =:= LengthMyChainToConfr of
+                    case checkIfContainsTrans(ChainCommon,OtherChain) of 
                         true -> 
-                            case rand:uniform(2) of
-                                1 -> 
-                                    % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
-                                    throw(discarded);
-                                2 -> otherChainAccepted(MyChain,OtherChain,PositionCommonBlock)
-                            end;
+                            throw(discarded); % scarto il blocco e rimane la catena mia
                         false ->
+                            otherChainAccepted(OtherChain,ChainCommon)
+                    end;
+                false-> %* CI FIDIAMO DELLA NOSTRA CATENA ANCHE A PARITA' DI LUNGHEZZA OLTRE A QUANDO SIAMO MAGGIORI
+                    throw(discarded) % scarto il blocco e rimane la catena mia
+
+                    % Se hanno la stessa dim
+                    % case LengthOtherChainToConfr =:= LengthMyChainToConfr of
+                    %     true -> 
+                    %         case rand:uniform(2) of
+                    %             1 -> 
+                    %                 % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
+                    %                 throw(discarded);
+                    %             2 -> otherChainAccepted(OtherChain,ChainCommon)
+
+                    %         end;
+                    %     false ->
                             % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
-                            throw(discarded) % scarto il blocco e rimane la catena mia
-                    end
+                            % throw(discarded) % scarto il blocco e rimane la catena mia
+        
+                % end
             end
     end.    
 
-otherChainAccepted(MyChain,OtherChain,PositionCommonBlock) ->
+otherChainAccepted(OtherChain,ChainCommon) ->
     % io:format("~n[Blocco Trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),
-    ChainCommon = lists:nthtail(PositionCommonBlock,MyChain),
     % tutte le transizione nella parte che sto inserendo
     T_in_Other_Chain = lists:flatmap(fun(A)->{_,_,X,_}=A, X end,OtherChain),
     NewChain = OtherChain ++ ChainCommon,
