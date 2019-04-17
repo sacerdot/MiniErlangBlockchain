@@ -197,7 +197,7 @@ chain_handler(PidMain, ListaAmici, CatenaNostra) ->
                             chain_handler(PidM, ListaAmici, CatenaNostra)
       end;
     _ ->
-      io:format("DPL: ChainHandler catena: ~p~n", [CatenaNostra]), 
+      %io:format("DPL: ChainHandler catena: ~p~n", [CatenaNostra]), 
       receive
         {get_previous, Mittente, Nonce, Idblocco} -> 
           spawn(fun() -> give_previous_block(Mittente, Nonce, Idblocco, CatenaNostra) end), 
@@ -228,7 +228,7 @@ chain_handler(PidMain, ListaAmici, CatenaNostra) ->
         {update, Mittente, Blocco} ->
           %io:format("DPL: update ricevuto~n"),
           {IDnuovo_blocco, IDblocco_precedente, Lista_di_transazioni, Soluzione} = Blocco,
-          case proof_of_work:check({IDnuovo_blocco, Lista_di_transazioni}, Soluzione) of 
+          case proof_of_work:check({IDblocco_precedente, Lista_di_transazioni}, Soluzione) of 
             true -> 
               %io:format("DPL: blocco da aggiungere ricevuto~n"),
               PidMain ! {remove_trans, Lista_di_transazioni},
