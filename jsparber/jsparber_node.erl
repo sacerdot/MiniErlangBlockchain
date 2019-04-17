@@ -5,9 +5,8 @@
 % This is blockchain node, based on teacher_node.
 % TODO: Clean up heads and blocks
 % TODO: Maintain a friends list of exactly 3 nodes
-% TODO: fix issue with asking friends (going crazy).
 
--define(TEACHERNODE, teacher@Sysadmin).
+-define(TEACHERNODE, teacher_node@librem).
 
 msg_anomaly(Sender, Msg) ->
   X = rand:uniform(10),
@@ -81,22 +80,23 @@ loop(Nodes, Old_nonces) ->
       msg_anomaly(Sender , {friends, Nonce, New_nodes}),
       loop(New_nodes, Nonces);
     {remove_nonce, Rm_nonces} ->
+      %TODO: resend message if we actually remove nonces
       loop(Nodes, Nonces -- Rm_nonces);
     {friends, Nonce, Incomming_nodes} ->
       case lists:member({friends, Nonce}, Nonces) of
         true ->
           New_nodes = add_nodes(Incomming_nodes, Nodes),
           % If we still don't have enough friends ask the the teacher
-          case length(New_nodes) < 3 of
-            true -> ask_with_delay(self(), true);
-            false -> none
+          New_nonces = case length(New_nodes) < 3 of
+            true -> [check_friends_list(New_nodes, Nonces) | Nonces];
+            false -> Nonces
           end,
           io:format("~p nodes discovered~n", [length(Incomming_nodes)]),
           io:format("~p Number of avaible nodes~n", [length(New_nodes)]),
           % Ask all new Nodes for there head
           This_nonces = request_head_all(Incomming_nodes -- [self()]),
           %We remove the Nonce and we need to add Nonces for each head request
-          loop(New_nodes, Nonces ++ nonces_cleaner(self(), This_nonces) -- [{friends, Nonces}]);
+          loop(New_nodes, New_nonces ++ nonces_cleaner(self(), This_nonces) -- [{friends, Nonces}]);
         false ->
           io:format("INVALID MESSAGE: We got a wrong nonce "
                     "with for friends~n"),
