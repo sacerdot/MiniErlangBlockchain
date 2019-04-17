@@ -5,6 +5,7 @@
 % This is blockchain node, based on teacher_node.
 % TODO: Clean up heads and blocks
 % TODO: Maintain a friends list of exactly 3 nodes
+% TODO: Ask all friends for more friends before reasking the teacher
 
 -define(TEACHERNODE, teacher_node@librem).
 -define(DEAD_TOLERANZ, 3).
@@ -213,6 +214,7 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
                                                             {T_transactions, Trans_mining ++ Block_transactions};
                                                           false -> {New_transactions, Trans_mining}
                                                         end,
+          io:format("Number of transections~p~n", [length(New_transactions)]),
           storage_loop(Blocks, Heads, Remaing_transactions, Mining_transactions);
         true -> storage_loop(Blocks, Heads, Transactions, Trans_mining)
       end;
@@ -250,6 +252,7 @@ explore_all_chains(Blocks, [{Head_id, Length} | T]) ->
 
 % Takes 3 arguments Blocks, Heads and new Head
 explore_chain(Blocks, Heads, {Head_id, Prev_head_id, _, _}) ->
+  io:format("Start exploring chain ~p Prev: ~p~n", [Head_id, Prev_head_id]),
   explore_chain(Blocks, Heads, Head_id, Prev_head_id, 0).
 
 % In case we don't have the explored chain at all (we are hiting none)
@@ -328,7 +331,9 @@ remove_transactions([H | T],
 
 % Return longest head out of a list of heads of form {Block_id, Length}
 get_longest_head(Heads) ->
-  get_longest_head(Heads, {none, 0}).
+  {Head_id, _} = get_longest_head(Heads, {none, 0}),
+  Head_id.
+
 
 get_longest_head([], Max_length) -> Max_length;
 get_longest_head([{Id, Length} | T],
@@ -398,6 +403,7 @@ test_transaction() ->
 test() ->
   spawn(fun main/0),
   sleep(20),
+  test_transaction(),
   test_transaction(),
   test_transaction(),
   test_transaction(),
