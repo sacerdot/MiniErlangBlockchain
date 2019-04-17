@@ -164,7 +164,7 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
   io:format("Heads ~p~n", [Heads]),
   receive
     {add_head, New_head, Remove_head} ->
-      io:format("New head"),
+      io:format("New head~n"),
       storage_loop(Blocks, [New_head | Heads -- [Remove_head]], Transactions, Trans_mining);
     {add_previous_block, Block} ->
       {Final_blocks, Final_trans} = case check_block(Blocks, Block) of
@@ -172,7 +172,7 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
                                         New_blocks = [Block | Blocks],
                                         % Explore chains with any missing previous block
                                         explore_all_chains(New_blocks, Heads),
-                                        {New_blocks, remove_transactions(Transactions, New_blocks)};
+                                        {New_blocks, remove_transactions(Transactions, Block)};
                                       false -> {Blocks, Transactions}
                                     end,
       storage_loop(Final_blocks, Heads, Final_trans, Trans_mining);
@@ -184,7 +184,7 @@ storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
                                                             % Explore chain till we find a old head, Block is in this case a head
                                                             explore_chain(New_blocks, Heads, Block),
                                                             jsparber_node ! {gossip, {update, Block}},
-                                                            {New_blocks, remove_transactions(Transactions, New_blocks), remove_transactions(Trans_mining, New_blocks)};
+                                                            {New_blocks, remove_transactions(Transactions, Block), remove_transactions(Trans_mining, Block)};
                                                           false -> {Blocks, Transactions, Trans_mining}
                                                         end,
       storage_loop(Final_blocks, Heads, Final_trans, Final_mining_trans);
@@ -315,19 +315,8 @@ check_transection([{_, _, List_of_transection, _} | T],
   end.
 
 remove_transactions([], _) -> [];
-remove_transactions([H | T],
-                    {Block_id, Prev_block_id, List_of_transection,
-                     Solution}) ->
-  case lists:member(H, List_of_transection) of
-    true ->
-      remove_transactions(T,
-                          {Block_id, Prev_block_id, List_of_transection,
-                           Solution});
-    false ->
-      [H | remove_transactions(T,
-                               {Block_id, Prev_block_id,
-                                List_of_transection, Solution})]
-  end.
+remove_transactions(Transections, {_, _, List_of_transection, _}) ->
+  Transections -- List_of_transection.
 
 % Return longest head out of a list of heads of form {Block_id, Length}
 get_longest_head(Heads) ->
