@@ -15,7 +15,7 @@ watch(Main, Node) ->
   nodeFP:sleep(10),
   Ref = make_ref(),
   Node ! {ping, self(), Ref},
-  io:format("ping da ~p a ~p~n", [self(), Node]),
+%%  io:format("ping da ~p a ~p~n", [self(), Node]),
   receive
     {pong, Ref} -> watch(Main, Node)
   after 2000 -> Main ! {dead, Node}
@@ -25,16 +25,16 @@ watch(Main, Node) ->
 managerNonce(PIDMain, Nonces) ->
   receive
     {updateNonce, Nonce} ->
-      io:format("~p -> updateNonce Nonce ~p~n", [PIDMain, Nonce]),
+%%      io:format("~p -> updateNonce Nonce ~p~n", [PIDMain, Nonce]),
       managerNonce(PIDMain, Nonces ++ [Nonce]);
     {checkNonce, Nonce, TempNonce} ->
       case lists:member(Nonce, Nonces) of
         true ->
-          io:format("~p -> checkNonce Nonce ~p OK ++++++++++-->~n", [PIDMain, Nonce]),
+%%          io:format("~p -> checkNonce Nonce ~p OK ++++++++++-->~n", [PIDMain, Nonce]),
           PIDMain ! {nonce, ok, TempNonce},
           managerNonce(PIDMain, Nonces--[Nonce]);
         false ->
-          io:format("~p -> checkNonce Nonce ~p False -------->~n", [PIDMain, Nonce]),
+%%          io:format("~p -> checkNonce Nonce ~p False -------->~n", [PIDMain, Nonce]),
           PIDMain ! {nonce, false, TempNonce},
           managerNonce(PIDMain, Nonces)
       end
@@ -44,7 +44,7 @@ managerNonce(PIDMain, Nonces) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Step: 0-> Skip; 1-> 1° richiesta; 2-> 2° richiesta nodeFP:sleep; 3-> chiedo al nodo prof.
 newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage) ->
-  io:format("~p ->Start newFriendsRequest Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
+%%  io:format("~p ->Start newFriendsRequest-> Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
   MyPid = self(),
   case Step of
     0 -> ok; %% Skip
@@ -59,33 +59,27 @@ newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage) ->
   end,
   receive
     {friend, FriendsOfFriend} ->
-      io:format("~p -> Friend receive Friends: ~p Step: ~p~n", [PIDMain, FriendsOfFriend, Step]),
+%%      io:format("~p -> Friend receive Friends: ~p Step: ~p~n", [PIDMain, FriendsOfFriend, Step]),
       NewFriends = extractNewFriends(FriendsOfFriend, Friends ++ [PIDMain], Friends),
       [spawn(fun() -> watch(MyPid, X) end) || X <- NewFriends],
       NewTotalFriends = Friends ++ NewFriends,
       if
-        length(NewTotalFriends) >= 3 ->
-          io:format("~p ->+++++ 1 ~p ~p~n", [PIDMain, Step, length(NewTotalFriends)]),
-          newFriendsRequest(PIDMain, NewTotalFriends, 0, ManagerNonce, ManagerMessage);
-        Step == 3 ->
-          io:format("~p ->+++++ 2 ~p~n", [PIDMain, Step]),
-          newFriendsRequest(PIDMain, NewTotalFriends, 1, ManagerNonce, ManagerMessage);
-        true ->
-          io:format("~p ->++++++ 3 ~p~n", [PIDMain, Step]),
-          newFriendsRequest(PIDMain, NewTotalFriends, Step + 1, ManagerNonce, ManagerMessage)
+        length(NewTotalFriends) >= 3 -> newFriendsRequest(PIDMain, NewTotalFriends, 0, ManagerNonce, ManagerMessage);
+        Step == 3 -> newFriendsRequest(PIDMain, NewTotalFriends, 1, ManagerNonce, ManagerMessage);
+        true -> newFriendsRequest(PIDMain, NewTotalFriends, Step + 1, ManagerNonce, ManagerMessage)
       end;
 
     {dead, Node} ->
-      io:format("~p -> Dead node ~p~n", [PIDMain, Node]),
+%%      io:format("~p -> Dead node ~p~n", [PIDMain, Node]),
       FriendsLess = Friends -- [Node],
       newFriendsRequest(PIDMain, FriendsLess, 1, ManagerNonce, ManagerMessage);
 
     {get_friends, Sender, Nonce} ->
-      io:format("~p -> get_friends from node ~p~n", [PIDMain, Sender]),
+%%      io:format("~p -> get_friends from node ~p~n", [PIDMain, Sender]),
       Sender ! {friends, Nonce, Friends};
 
     {gossipingMessage, Message} ->
-      io:format("~p -> gossipingMessage : transaction ~p~n", [PIDMain, Message]),
+%%      io:format("~p -> gossipingMessage : transaction ~p~n", [PIDMain, Message]),
       [F ! Message || F <- Friends]
   end,
   if
