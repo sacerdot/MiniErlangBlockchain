@@ -25,7 +25,7 @@ init() ->
   ManagerMessage = spawn_link(topologyFP, sendGetFriends, [PID, ManagerNonce]),
   ManagerFriends = spawn_link(topologyFP, newFriendsRequest, [PID, [], 0, ManagerNonce, ManagerMessage]),
   ManagerTransaction = spawn_link(blockChain, managerTransactions, [PID, ManagerFriends, [], []]),
-  ManagerBlock = spawn_link(blockChain, managerBlock, [PID, ManagerFriends, ManagerNonce, []]),
+  ManagerBlock = spawn_link(blockChain, managerBlock, [PID, ManagerFriends, ManagerNonce, ManagerTransaction, []]),
   %%attore che si occupa di tenere aggiornata la mia blockchain in caso non abbiamo amici (si cerca di capire se non abbiamo amici quando non riceviamo ping per tot tempo)
   ManagerHead = spawn_link(blockChain, managerHead, [PID]),
   loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead).
