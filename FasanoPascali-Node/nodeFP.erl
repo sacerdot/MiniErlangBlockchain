@@ -14,6 +14,7 @@
 sleep(N) -> receive after N * 1000 -> ok end.
 
 %% todo testare perdita di messaggi e arrivo di messaggi doppi
+%% todo integrare perdita di messaggi e invio di messaggi doppi
 
 init() ->
 %%      chiedo amici
