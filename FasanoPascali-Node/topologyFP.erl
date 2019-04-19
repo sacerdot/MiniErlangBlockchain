@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(topologyFP).
 -author("andrea").
--export([watch/2, managerNonce/2, newFriendsRequest/5, sendGetFriends/2, sendMaybeWrongMessages/3]).
+-export([watch/2, managerNonce/2, newFriendsRequest/6, gossipingMessage/1, sendGetFriends/2, sendMaybeWrongMessages/3]).
 
 
 watch(Main, Node) ->
@@ -43,7 +43,7 @@ managerNonce(PIDMain, Nonces) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Step: 0-> Skip; 1-> 1° richiesta; 2-> 2° richiesta nodeFP:sleep; 3-> chiedo al nodo prof.
-newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage) ->
+newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage, PIDGossipingMessage) ->
 %%  io:format("~p ->Start newFriendsRequest-> Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
   MyPid = self(),
   case Step of
@@ -58,33 +58,57 @@ newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage) ->
       end
   end,
   receive
-    {friend, FriendsOfFriend} ->
-%%      io:format("~p -> Friend receive Friends: ~p Step: ~p~n", [PIDMain, FriendsOfFriend, Step]),
-      NewFriends = extractNewFriends(FriendsOfFriend, Friends ++ [PIDMain], Friends),
-      [spawn(fun() -> watch(MyPid, X) end) || X <- NewFriends],
-      NewTotalFriends = Friends ++ NewFriends,
-      if
-        length(NewTotalFriends) >= 3 -> newFriendsRequest(PIDMain, NewTotalFriends, 0, ManagerNonce, ManagerMessage);
-        Step == 3 -> newFriendsRequest(PIDMain, NewTotalFriends, 1, ManagerNonce, ManagerMessage);
-        true -> newFriendsRequest(PIDMain, NewTotalFriends, Step + 1, ManagerNonce, ManagerMessage)
+    {friends, Nonce, FriendsOfFriend} ->
+      TempNonce = make_ref(),
+      ManagerNonce ! {checkNonce, Nonce, TempNonce},
+      receive
+        {nonce, false, TempNonce} -> do_nothing;
+        {nonce, ok, TempNonce} ->
+          %%      io:format("~p -> Friend receive Friends: ~p Step: ~p~n", [PIDMain, FriendsOfFriend, Step]),
+          NewFriends = extractNewFriends(FriendsOfFriend, Friends ++ [PIDMain], Friends),
+          [spawn(fun() -> watch(MyPid, X) end) || X <- NewFriends],
+          NewTotalFriends = Friends ++ NewFriends,
+          PIDGossipingMessage! {updateFriends, NewTotalFriends},
+          if
+            length(NewTotalFriends) >= 3 ->
+              newFriendsRequest(PIDMain, NewTotalFriends, 0, ManagerNonce, ManagerMessage, PIDGossipingMessage);
+            Step == 3 -> newFriendsRequest(PIDMain, NewTotalFriends, 1, ManagerNonce, ManagerMessage, PIDGossipingMessage);
+            true -> newFriendsRequest(PIDMain, NewTotalFriends, Step + 1, ManagerNonce, ManagerMessage, PIDGossipingMessage)
+          end
+      after 5000 -> self() ! {friends, Nonce, FriendsOfFriend}
       end;
 
     {dead, Node} ->
 %%      io:format("~p -> Dead node ~p~n", [PIDMain, Node]),
       FriendsLess = Friends -- [Node],
-      newFriendsRequest(PIDMain, FriendsLess, 1, ManagerNonce, ManagerMessage);
+      PIDGossipingMessage! {updateFriends, FriendsLess},
+      newFriendsRequest(PIDMain, FriendsLess, 1, ManagerNonce, ManagerMessage, PIDGossipingMessage);
 
     {get_friends, Sender, Nonce} ->
 %%      io:format("~p -> get_friends from node ~p~n", [PIDMain, Sender]),
       Sender ! {friends, Nonce, Friends};
 
-    {gossipingMessage, Message} ->
+%%    {gossipingMessage, Message} ->
 %%      io:format("~p -> gossipingMessage : transaction ~p~n", [PIDMain, Message]),
-      [F ! Message || F <- Friends]
+%%      [F ! Message || F <- Friends];
+
+    {sendMessageRandFriend, Message} ->
+      R = rand:uniform(3),
+      lists:nth(R, Friends) ! Message
   end,
-  if
-    length(Friends) >= 3 -> newFriendsRequest(PIDMain, Friends, 0, ManagerNonce, ManagerMessage);
-    true -> newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage)
+  case length(Friends) of
+    3 -> newFriendsRequest(PIDMain, Friends, 0, ManagerNonce, ManagerMessage, PIDGossipingMessage);
+    _ -> newFriendsRequest(PIDMain, Friends, Step, ManagerNonce, ManagerMessage, PIDGossipingMessage)
+  end.
+
+gossipingMessage(Friends) ->
+  receive
+    {updateFriends, NewFriends} ->
+      gossipingMessage(NewFriends);
+    {gossipingMessage, Message} ->
+      io:format("+++++ -> gossipingMessage : transaction ~p~n", [Message]),
+      [F ! Message || F <- Friends],
+      gossipingMessage(Friends)
   end.
 
 %% InitFriends è stato inserito per evitare di spawn nodi monitor già esistenti e quindi far ritornare solo i nuovi amici
@@ -106,7 +130,7 @@ sendGetFriends(PIDMain, ManagerNonce) ->
   ManagerNonce ! {updateNonce, TempNonce},
   receive
     {global} -> global:send(teacher_node, {get_friends, PIDMain, TempNonce}), nodeFP:sleep(5);
-    {Receive, Step} when Step==2 -> nodeFP:sleep(5), Receive ! {get_friends, PIDMain, TempNonce};
+    {Receive, Step} when Step == 2 -> nodeFP:sleep(5), Receive ! {get_friends, PIDMain, TempNonce};
     {Receive, _} -> Receive ! {get_friends, PIDMain, TempNonce}
   end,
   flushMailBox(),

@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(testFP).
 -author("andrea").
--export([test/0, minimalTest/0, stressfulTest/0, testX/0, testBlock/0]).
+-export([test/0, minimalTest/0, stressfulTest/0, testX/0, testBlock/0, testA/0, testB/0]).
 
 initTest() ->
   compile:file(teacher_node),
@@ -25,6 +25,11 @@ test() ->
   spawn(nodeFP, init, []),
   spawn(nodeFP, init, []).
 
+
+sendTransactions(Pid, Transaction) ->
+  io:format("INVIO transazione------------:::::::::::::::::::::::::::::::-->~p~n", [Transaction]),
+  Pid ! {push, {make_ref(), Transaction}}.
+
 testBlock() ->
   io:format("Start ~n"),
   initTest(),
@@ -33,78 +38,138 @@ testBlock() ->
   TempPid3 = spawn(nodeFP, init, []),
   TempPid4 = spawn(nodeFP, init, []),
   nodeFP:sleep(2),
+  io:format("SPAWN+++++++++++++++++ TempPid5----------------------------------------->~n"),
   TempPid5 = spawn(nodeFP, init, []),
-  io:format("spawn TempPid5 e invio TRANSAZIONI----------------------------------------->~n"),
-  TempPid1 ! {push, {make_ref(), transazione1}},
-  nodeFP:sleep(7),
-  TempPid1 ! {push, {make_ref(), transazione2}},
-  TempPid2 ! {push, {make_ref(), transazione3}},
-  TempPid4 ! {push, {make_ref(), transazione4}},
-  TempPid4 ! {push, {make_ref(), transazione5}},
-  TempPid2 ! {push, {make_ref(), transazione6}},
+
   nodeFP:sleep(5),
-  TempPid3 ! {push, {make_ref(), transazione7}},
-  nodeFP:sleep(15),
-  nodeFP:sleep(20),
-  TempPid4 ! {push, {make_ref(), transazione8}},
-  TempPid1 ! {push, {make_ref(), transazione9}},
-  TempPid3 ! {push, {make_ref(), transazione10}},
-  TempPid4 ! {push, {make_ref(), transazione11}},
-  TempPid2 ! {push, {make_ref(), transazione12}},
-  TempPid1 ! {push, {make_ref(), transazione13}},
+
+  sendTransactions(TempPid1, transazione1),
   nodeFP:sleep(3),
-  TempPid4 ! {push, {make_ref(), transazione14}},
-  TempPid2 ! {push, {make_ref(), transazione15}},
-  TempPid1 ! {push, {make_ref(), transazione16}},
+  sendTransactions(TempPid2, transazione2),
+  sendTransactions(TempPid3, transazione3),
+  sendTransactions(TempPid4, transazione4),
   nodeFP:sleep(5),
-  TempPid4 ! {push, {make_ref(), transazione20}},
-  TempPid2 ! {push, {make_ref(), transazione21}},
+  sendTransactions(TempPid2, transazione5),
   nodeFP:sleep(1),
-  TempPid5 ! {push, {make_ref(), transazione22}},
-  TempPid1 ! {push, {make_ref(), transazione23}},
+  sendTransactions(TempPid3, transazione6),
+  nodeFP:sleep(2),
+  sendTransactions(TempPid4, transazione7),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid4, transazione8),
+  nodeFP:sleep(3),
+  sendTransactions(TempPid1, transazione9),
+
   io:format("--------------------Sleep 60-------------------------------~n"),
   nodeFP:sleep(60),
   io:format("--------------------KILL TempPid3-------------------------------~n"),
   exit(TempPid3, kill),
-  TempPid4 ! {push, {make_ref(), transazione81}},
-  TempPid1 ! {push, {make_ref(), transazione91}},
-  TempPid5 ! {push, {make_ref(), transazione101}},
-  TempPid4 ! {push, {make_ref(), transazione111}},
-  TempPid2 ! {push, {make_ref(), transazione121}},
-  TempPid5 ! {push, {make_ref(), transazione131}},
-  nodeFP:sleep(3),
-  TempPid4 ! {push, {make_ref(), transazione141}},
-  TempPid2 ! {push, {make_ref(), transazione115}},
-  TempPid1 ! {push, {make_ref(), transazione161}},
-  nodeFP:sleep(5),
-  TempPid4 ! {push, {make_ref(), transaszione201}},
-  TempPid2 ! {push, {make_ref(), transazione211}},
-  nodeFP:sleep(1),
-  TempPid5 ! {push, {make_ref(), tsransazione221}},
-  TempPid1 ! {push, {make_ref(), transazione231}},
-  nodeFP:sleep(3),
-  TempPid4 ! {push, {make_ref(), transaz1ione14}},
-  TempPid5 ! {push, {make_ref(), transa1zione15}},
-  TempPid1 ! {push, {make_ref(), transazi1one16}},
-  nodeFP:sleep(5),
-  TempPid4 ! {push, {make_ref(), transazi1one20}},
-  TempPid2 ! {push, {make_ref(), transazio1ne21}},
-  nodeFP:sleep(1),
-  TempPid5 ! {push, {make_ref(), transazio1ne22}},
-  TempPid1 ! {push, {make_ref(), trans1azione23}},
-  nodeFP:sleep(25),
-  TempPid4 ! {push, {make_ref(), tra1nsazione8}},
-  TempPid5 ! {push, {make_ref(), transa1zione9}},
-  TempPid5 ! {push, {make_ref(), tran1sazione10}},
-  TempPid4 ! {push, {make_ref(), trans1azione11}},
-  TempPid2 ! {push, {make_ref(), transazio1ne12}},
-  TempPid1 ! {push, {make_ref(), transaz1ione13}},
-  nodeFP:sleep(3),
-  TempPid4 ! {push, {make_ref(), transa1zione14}},
-  TempPid2 ! {push, {make_ref(), transa1zione15}},
-  TempPid1 ! {push, {make_ref(), transa1zione16}}
-.
 
+  nodeFP:sleep(1),
+  sendTransactions(TempPid5, transazione10),
+  sendTransactions(TempPid4, transazione11),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid1, transazione12),
+  sendTransactions(TempPid4, transazione13),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid1, transazione14),
+  nodeFP:sleep(3),
+  sendTransactions(TempPid5, transazione15),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid2, transazione16),
+  nodeFP:sleep(5),
+  sendTransactions(TempPid5, transazione17),
+  nodeFP:sleep(2),
+  sendTransactions(TempPid1, transazione18),
+  nodeFP:sleep(5),
+  sendTransactions(TempPid2, transazione19),
+  sendTransactions(TempPid5, transazione20),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid1, transazione21),
+  nodeFP:sleep(3),
+  sendTransactions(TempPid5, transazione22),
+  sendTransactions(TempPid5, transazione23),
+  sendTransactions(TempPid2, transazione24),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid2, transazione25),
+  sendTransactions(TempPid5, transazione26),
+  nodeFP:sleep(2),
+  sendTransactions(TempPid4, transazione27),
+  sendTransactions(TempPid1, transazione28),
+  nodeFP:sleep(5),
+  sendTransactions(TempPid5, transazione29),
+  sendTransactions(TempPid4, transazione30),
+  nodeFP:sleep(10),
+  sendTransactions(TempPid2, eNDtransazione100).
+
+
+testA() ->
+  io:format("Start ~n"),
+  initTest(),
+  TempPid1 = spawn(nodeFP, init, []),
+  TempPid2 = spawn(nodeFP, init, []),
+  TempPid3 = spawn(nodeFP, init, []),
+  TempPid4 = spawn(nodeFP, init, []),
+  nodeFP:sleep(2),
+  io:format("SPAWN+++++++++++++++++ TempPid5----------------------------------------->~n"),
+  spawn(nodeFP, init, []),
+
+  nodeFP:sleep(5),
+
+  sendTransactions(TempPid1, transazione1),
+
+  nodeFP:sleep(2),
+  sendTransactions(TempPid2, transazione2),
+  sendTransactions(TempPid3, transazione3),
+  sendTransactions(TempPid4, transazione4),
+  nodeFP:sleep(10),
+  sendTransactions(TempPid2, transazione5),
+  nodeFP:sleep(1),
+
+  sendTransactions(TempPid2, eNDtransazione100).
+
+testB() ->
+  io:format("Start ~n"),
+  initTest(),
+  TempPid1 = spawn(nodeFP, init, []),
+  TempPid2 = spawn(nodeFP, init, []),
+  TempPid3 = spawn(nodeFP, init, []),
+  TempPid4 = spawn(nodeFP, init, []),
+  nodeFP:sleep(2),
+  io:format("SPAWN+++++++++++++++++ TempPid5----------------------------------------->~n"),
+  TempPid5 = spawn(nodeFP, init, []),
+
+  nodeFP:sleep(5),
+
+  sendTransactions(TempPid1, transazione1),
+
+  nodeFP:sleep(2),
+  sendTransactions(TempPid2, transazione2),
+  sendTransactions(TempPid3, transazione3),
+  sendTransactions(TempPid4, transazione4),
+  nodeFP:sleep(10),
+  sendTransactions(TempPid2, transazione5),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid3, transazione6),
+  nodeFP:sleep(2),
+  sendTransactions(TempPid4, transazione7),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid4, transazione8),
+  nodeFP:sleep(3),
+  sendTransactions(TempPid1, transazione9),
+
+  io:format("--------------------Sleep 60-------------------------------~n"),
+  nodeFP:sleep(60),
+  io:format("--------------------KILL TempPid3-------------------------------~n"),
+  exit(TempPid3, kill),
+
+  nodeFP:sleep(1),
+  sendTransactions(TempPid5, transazione10),
+  sendTransactions(TempPid4, transazione11),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid1, transazione12),
+  sendTransactions(TempPid4, transazione13),
+  nodeFP:sleep(1),
+  sendTransactions(TempPid2, eNDtransazione100).
 
 minimalTest() ->
   initTest(),
@@ -143,11 +208,39 @@ stressfulTestLoop() ->
   spawn(nodeFP, init, []),
   stressfulTestLoop().
 
+testGossip()->
+  io:format("Start ~n"),
+  initTest(),
+  TempPid1 = spawn(nodeFP, init, []),
+  TempPid2 = spawn(nodeFP, init, []),
+  TempPid3 = spawn(nodeFP, init, []),
+  TempPid4 = spawn(nodeFP, init, []),
+  nodeFP:sleep(1),
+  TempPid5 = spawn(nodeFP, init, []),
+
+  sendTransactions(TempPid1, transazione1),
+
+  nodeFP:sleep(2),
+  sendTransactions(TempPid2, transazione2),
+  sendTransactions(TempPid3, transazione3),
+  sendTransactions(TempPid4, transazione4),
+  nodeFP:sleep(10),
+  sendTransactions(TempPid2, transazione5),
+  nodeFP:sleep(1),
+
+  sendTransactions(TempPid2, eNDtransazione100).
+
+
+%% c(testFP).
+%% testFP:testA().
+%% testFP:testB().
+%% testFP:testBlock().
+
+
 
 %% c(testFP). testFP:test().  exit(<0.71.0>, kill). spawn(nodeFP, init, []).
 %% testFP:minimalTest().
 %% testFP:testX().
-%% c(testFP).testFP:testBlock().
 %% testFP:testBlock().
 %% exit(<0.68.0>, kill).
 %% exit(<0.69.0>, kill).
