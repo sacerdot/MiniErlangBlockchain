@@ -6,7 +6,6 @@
 
 
 compute(PidRoot,PidBlock) ->
-    % io:format("[~p]: sono l'attore Miner di ~p~n",[self(),PidRoot]),
     PidBlock ! {minerReady,self()},
     % mi metto in attesa di un nuovo set di transazioni da inserire nel blocco
     receive 
@@ -19,5 +18,5 @@ compute(PidRoot,PidBlock) ->
     end.
 
 start_M_act(PidRoot,PidBlock) -> 
-    sleep(2),
+    sleep(1),
     compute(PidRoot,PidBlock).   

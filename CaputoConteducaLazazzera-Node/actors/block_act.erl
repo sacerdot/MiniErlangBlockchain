@@ -1,102 +1,54 @@
 -module(block_act).
 -import (miner_act , [start_M_act/2]).
--import (chain_tools , [validityBlock/2,buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1]).
+-import (chain_tools , [buildInitChain/1,searchBlock/2]).
 -import (block_gossiping_act , [blockGossiping/4,test/0]).
--import (utils , [sendMessage/2,sleep/1]).
+-import (reconstruct_act , [chainRestore/3]).
 
--export([start_B_act/1]).
+-import (utils , [sendMessage/2,sleep/1,formatChain/1]).
 
-% TODO : CHIEDERE A SENDER O AMICI IL BLOCCO PRECEDENTE
+-export([start_B_act/2]).
 
-%! behavior dell'attore che ricostruisce la catena e la notifica a PidB
-chainRestore(PidRoot,PidB,Chain) -> 
-    %? Caso 0 (EASY):
-    %?     Chain è vuota. Inserisco il Blocco direttamente
 
-    %? Caso 1 (EASY):
-    %?     Blocco va inserito in cima alla mia catena --> ottimo
-    %?     ID_Prev di Blocco è la testa di Chain 
-
-    %? Caso 2 (SUPER-EASY):
-    %?     ID_Prev di Blocco non è la testa ma un blocco più 
-    %?     vecchio della catena --> lo scarto
-
-    %? Caso 3 (HARD):
-    %?     Se ID_Prev di Blocco non fa parte della mia catena 
-    %?     chiedo al Sender di invarmi il Blocco ID_Prev in modo
-    %?     da capire il punto della biforcazione
-    %?     trovato il punto di biforcazione (conosco l'ID_Prev)
-    %?     confronto le catene
-    receive  
-        {updateChain, NewChain} ->
-            % aggiorno la visione della catena a seguito di un nuovo blocco minato da me
-            chainRestore(PidRoot,PidB,NewChain);
-        {newBlock,Sender,Blocco} -> 
-            case checkBlock(Blocco) of
-                true ->  % blocco valido
-                    try 
-                        reconstructing(PidRoot,Blocco,Chain,Sender)            
-                    catch
-                        {done,NewChain,NewTMined} -> 
-
-                            PidB ! {getPidMiner},
-                            receive 
-                                {pidMiner, PidM} ->
-                                    % killo il miner
-                                    % io:format("Miner killed (~p)~n",[PidM]),
-                                    exit(PidM,kill)
-                            end,
-                            PidB !  {updateMyChain,{NewTMined,NewChain}},
-                            chainRestore(PidRoot,PidB,NewChain);
-                        discarded -> 
-                            % Il blocco ricevuto è stato scartato
-                            chainRestore(PidRoot,PidB,Chain)
-                    end;
-                false ->
-                    chainRestore(PidRoot,PidB,Chain)
-            end
-
-    end.
-
-compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) ->
+compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) ->
     receive
         {getPidMiner} ->
             % ReconstructrAct mi ha chiesto il pidM per fare kill 
-            PidRestore ! {pidMiner, PidM},
-            compute(PidRoot,PidRestore,PidBlockG,none,Chain,{T_ToMine,T_Mined},T_In_Mining);
+            spawn(fun()-> PidRestore ! {pidMiner, PidM} end),
+            compute(NameNode,PidRoot,PidRestore,PidBlockG,none,Chain,{T_ToMine,T_Mined},T_In_Mining);
         {printTM} ->
-            io:format("[~p] Le Transazioni da minare sono: ~p~n",[PidRoot,T_ToMine]),
-            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+            io:format("[~p,~p] Le Transazioni da minare sono: ~p~n",[NameNode,PidRoot,T_ToMine]),
+            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
         {printC} ->
-            io:format("[~p] CATENA (~p): ~p~n",[PidRoot,length(Chain),Chain]),
-            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
-        {minerReady,PidM} when length(T_ToMine) =/= 0 ->
+            io:format("[~p,~p] CATENA(~p): ~p~n",[NameNode,PidRoot,length(Chain),Chain]),
+            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+        {minerReady,PidM} when length(T_ToMine) =/= 0  ->
                 % vengono rimosse da T_ToMine quando il miner ha finito
-                A = T_ToMine --T_Mined --T_In_Mining,
-                New_T_In_Mining = lists:sublist(A,10),
-                % io:format("~n Invio New T a ~p LengthChain:~p~n",[PidM, length(Chain)]),
-                case length(Chain) =:= 0 of
-                    true -> 
-                        PidM ! {createBlock, none, New_T_In_Mining};
-                    false ->
-                        [{ID_Head,_,_,_}| _] = Chain,
-                        PidM ! {createBlock, ID_Head, New_T_In_Mining}
+                New_T_ToMine = T_ToMine -- T_Mined, % rimuove eventualmente le T già minate
+                New_T_In_Mining = lists:sublist(New_T_ToMine,10),
+                case length(New_T_ToMine) =:= 0 of
+                    true -> self() ! {minerReady,PidM};
+                    false -> 
+                        spawn(
+                            fun() -> 
+                                case length(Chain) =:= 0 of
+                                    true -> 
+                                        PidM ! {createBlock, none, New_T_In_Mining};
+                                    false ->
+                                        [{ID_Head,_,_,_}| _] = Chain,
+                                        PidM ! {createBlock, ID_Head, New_T_In_Mining}
+                                end
+                        end)
                 end,
-                compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},New_T_In_Mining);
+                compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{New_T_ToMine,T_Mined},New_T_In_Mining);
 
         %transazione ricevuta da PidT: controllo se non è stata già inserita in qualche blocco
         {pushLocal, Transazione} -> 
-            case lists:member(Transazione,T_Mined) of
+            case lists:member(Transazione,T_Mined) or lists:member(Transazione,T_ToMine)  of
                 true -> 
-                    % già stata minata
-                    compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+                    % già stata minata oppure già inserita in T_ToMine
+                    compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
                 false ->
-                    case lists:member(Transazione,T_ToMine) of
-                        true ->
-                            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
-                        false ->
-                            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{[Transazione]++T_ToMine,T_Mined},T_In_Mining)
-                    end
+                    compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{[Transazione]++T_ToMine,T_Mined},T_In_Mining)
             end;
         % blocco ricevuto da Root: controllo se devo fare gossiping
         {updateLocal,Sender,Blocco}->
@@ -104,37 +56,34 @@ compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) 
             % se ci sono transazioni già minate o T in T_In_Mining non lo accetto 
             % ma tengo in considerazione quelle
             % transazioni che non ho (nè in T_ToMine ne in T_Mined)
-            % {NewToMine, NewTMined, Reconstr} = validityBlock({T_ToMine,T_Mined},Blocco), %in chain_tools.erl
             % mando a PidBlockG il blocco che verifica se fare gossiping
             % avviare la fase di ricostruzione della catena
-            PidBlockG ! {updateLocal,Sender,Blocco,true},
-            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+            PidBlockG ! {updateLocal,Sender,Blocco},
+            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
         {get_previous, Mittente, Nonce, ID_Blocco} ->
             % il seguente attore cerca nella catena il blocco con ID_Blocco
             % e se lo trova risponde, altrimenti no
             spawn(fun()-> 
-                case searchBlock(ID_Blocco,Chain) of
-                    none -> nothing_to_send;
-                    Blocco -> 
-                        sendMessage(Mittente,{previous, Nonce, Blocco})
-                end 
+                Res = searchBlock(ID_Blocco,Chain),
+                sendMessage(Mittente,{previous, Nonce, Res})
             end),
-            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
         {get_head, Mittente, Nonce} ->
             spawn(fun() ->
                 % se Chain è Empty non mando nulla
                 case length(Chain) =:= 0 of
-                    true -> nothing_to_send;
+                    true -> 
+                        sendMessage(Mittente , {head,Nonce,none});
                     false -> 
                         [Head | _] = Chain, 
                         sendMessage(Mittente , {head,Nonce,Head})
                 end 
             end),
-            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
+            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
             
         {updateMyChain,{TMinedFromUpdate,NewChain}} -> 
                 %* ReconstructAct mi ha notificato la nuova catena e le nuove transazioni inserite
-                % io:format("~n~n[~p] My new chain -> ~p ~n(Length -> ~p)~n",[PidRoot,NewChain,length(NewChain)]),
+                %* e quindi PidM sicuramente non esiste più
                 
                 % Le Transazioni su cui stava lavorando il Miner 
                 % sono ancora nella lista delle transazioni da minare
@@ -147,7 +96,7 @@ compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) 
                 PidB = self(),                
                 NewPidM = spawn(fun() -> start_M_act(PidRoot,PidB) end),
                 % io:format("[~p] New Miner created (~p)~n",[PidRoot,NewPidM]),
-                compute(
+                compute(NameNode,
                     PidRoot,PidRestore,PidBlockG,
                     NewPidM,
                     NewChain,{New_T_ToMine,New_T_Mined},[]);
@@ -164,10 +113,10 @@ compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) 
                             New_T_ToMine = T_ToMine -- T_In_Mined_Block,
                             PidRestore ! {updateChain, [Blocco] ++ Chain}, %avverto il ricostruttore della nuova visione
                             PidBlockG ! {updateMinedBlock, Blocco}, % gossiping del blocco
-                            compute(PidRoot,PidRestore,PidBlockG,PidM,[Blocco] ++ Chain,{New_T_ToMine,New_T_Mined},[]);
+                            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,[Blocco] ++ Chain,{New_T_ToMine,New_T_Mined},[]);
                         false -> 
                             % per qualche motivo il blocco minato non coincide più con la testa della catena
-                            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine--T_Mined,T_Mined},[])                                
+                            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine--T_Mined,T_Mined},[])                                
                     end;
                 false -> 
                     [{ID_Head,_,_,_} | _ ] = Chain,
@@ -179,18 +128,16 @@ compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining) 
                             %avverto il ricostruttore della nuova visione
                             PidRestore ! {updateChain, [Blocco] ++ Chain},
                             PidBlockG ! {updateMinedBlock, Blocco}, % gossiping del blocco
-                            compute(PidRoot,PidRestore,PidBlockG,PidM,[Blocco] ++ Chain,{New_T_ToMine,New_T_Mined},[]);
+                            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,[Blocco] ++ Chain,{New_T_ToMine,New_T_Mined},[]);
                         false ->
                             % per qualche motivo il blocco minato non coincide più con la testa della catena
-                            compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine--T_Mined,T_Mined},[])
+                            compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine--T_Mined,T_Mined},[])
                     end
-                end;
-
-        lastcase -> nothing_to_do
+                end
     end.
 
 
-start_B_act(PidRoot) -> 
+start_B_act(NameNode,PidRoot) -> 
     sleep(10),
     PidB = self(),
     T_ToMine = [],
@@ -207,4 +154,4 @@ start_B_act(PidRoot) ->
         % lista blocchi conosciuti (inizialmente è la catena)
         blockGossiping(PidRoot,PidB,PidRestore,Chain)
     end),
-    compute(PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},[]).
+    compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},[]).

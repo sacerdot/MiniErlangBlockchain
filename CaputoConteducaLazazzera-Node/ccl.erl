@@ -1,11 +1,11 @@
 -module(ccl).
 -import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
--import (block_act , [start_B_act/1]).
+-import (block_act , [start_B_act/2]).
 -import (utils , [sendMessage/2,sleep/1]).
 
 
--export([test/0,start/1]).
+-export([test/0,start/1,test2/0]).
 
 -on_load(load_module_act/0).
 
@@ -17,6 +17,7 @@ load_module_act() ->
     compile:file('actors/block_gossiping_act.erl'), 
     compile:file('actors/chain_tools.erl'), 
     compile:file('actors/miner_act.erl'), 
+    compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
     compile:file('teacher_node.erl'),
     compile:file('proof_of_work.erl'),
@@ -160,7 +161,7 @@ start(NameNode) ->
     Self = self(),
     process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
     PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
-    PidB = spawn_link(fun() -> start_B_act(Self) end), % attore delegato alla gestione dei blocchi
+    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
     loop([],NameNode, PidT, PidB, PidC, []).
 
@@ -170,10 +171,102 @@ sendT(Dest,Payload) ->
     Dest ! {push, {make_ref(), Payload}},
     io:format("> Send ~p to ~p~n",[Payload,Dest]).
     
+test2() ->
+     io:format("Versione easy~n"),
+    TIME = 2,
+    TIME_TO_TRANS = 3,
+    spawn(teacher_node,main,[]), % teacher_node
+    sleep(1),
+    
+    N1 = spawn(?MODULE,start,["N1"]),
+    io:format("~p -> ~p~n",["N1",N1]),
+    sleep(TIME),
+    
+    N2 = spawn(?MODULE,start,["N2"]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    sleep(TIME),
+
+    sleep(5),
+    io:format("Testing Transaction...~n"),
+    sendT(N1,"Ho comprato il pane"),
+    sleep(TIME_TO_TRANS),
+    sendT(N1,"Ho comprato il pesce"),
+    sleep(TIME_TO_TRANS),
+    sendT(N2,"Ho comprato il latte"),
+    sleep(TIME_TO_TRANS),
+    sendT(N2,"Ho comprato il formaggio"),
+    sleep(TIME_TO_TRANS*5),
+    sendT(N2,"Ho comprato il pesto"),
+    sendT(N2,"Ho comprato il succo"),
+
+    N3 = spawn(?MODULE,start,["N3"]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    
+    sleep(20),
+    io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    N1 ! {printC},
+    N2 ! {printC},
+    N3 ! {printC},
+    io:format("FIN QUI TUTTO OK ~n"),
+
+    sleep(10),
+    N4 = spawn(?MODULE,start,["N4"]),
+    io:format("~p -> ~p~n",["N4",N4]),
+    N5 = spawn(?MODULE,start,["N5"]),
+    io:format("~p -> ~p~n",["N5",N5]),
+
+    sendT(N4,"Ho comprato il vino"),
+    sendT(N4,"Ho comprato il salame"),
+    sendT(N4,"Ho comprato il pomodoro"),
+    sendT(N5,"Ho comprato il prosciutto"),
+    sleep(25),
+    N1 ! {printC},
+    N2 ! {printC},
+    N3 ! {printC},
+    N4 ! {printC},
+    N5 ! {printC},
+    io:format("FINITO PARTE2~n"),
+
+    sleep(15),
+    exit(N1,kill),
+    sleep(10),
+    N6 = spawn(?MODULE,start,["N6"]),
+    io:format("~p -> ~p~n",["N6",N6]),
+    sleep(15),
+    N6 ! {printC},
+    io:format("CONTROLLARE RICOSTRUZIONE N6~n"),
+    sleep(10),
+    N7 = spawn(?MODULE,start,["N7"]),
+    io:format("~p -> ~p~n",["N7",N7]),
+    sleep(10),
+    sendT(N6,"Ho comprato il miele"),
+    sendT(N6,"Ho comprato il caviale"),
+    sleep(25),
+    N2 ! {printC},
+    N3 ! {printC},
+    N4 ! {printC},
+    N5 ! {printC},
+    N6 ! {printC},
+    N7 ! {printC},
+    io:format("FINITO PARTE EASY~n"),
+
+    sleep(10),
+    exit(N5,kill),
+    exit(N6,kill),
+    sleep(20),
+    sendT(N4,"Ho comprato il sushi"),
+    sleep(30),
+    N2 ! {printC},
+    N3 ! {printC},
+    N4 ! {printC},
+    N7 ! {printC},
+    io:format("FINITO~n").
 
 test() ->  
 
-    io:format("Versione 1.5~n"),
+    io:format("Versione hard~n"),
     TIME = 2,
     TIME_TO_TRANS = 3,
     spawn(teacher_node,main,[]), % teacher_node
@@ -203,7 +296,7 @@ test() ->
     sleep(TIME_TO_TRANS),
     sendT(N2,"Ho comprato il latte"),
     sleep(TIME_TO_TRANS),
-    sendT(N3,"Ho comprato il carne"),
+    sendT(N3,"Ho comprato il formaggio"),
     sleep(TIME_TO_TRANS),
     sendT(N2,"Ho comprato il pesto"),
     sleep(TIME_TO_TRANS),
@@ -283,21 +376,3 @@ test() ->
 
     io:format("Finito").
 
-   % PRINT = fun PRINT() ->
-    %         sleep(15),
-    %         io:format("----- ACTORS LIST ------~n"),
-    %         io:format("~p -> ~p~n",["N1",N1]),
-    %         io:format("~p -> ~p~n",["N2",N2]),
-    %         io:format("~p -> ~p~n",["N3",N3]),
-    %         io:format("~p -> ~p~n",["N4",N4]),
-    %         io:format("~p -> ~p~n",["N5",N5]),
-    %         io:format("-------------------------~n"),
-    %         N2 ! {printC},
-    %         N3 ! {printC},    
-    %         N4 ! {printC},    
-    %         N5 ! {printC},
-    %         PRINT()
-    %     end,
-
-    
-    % exit(N2, kill).

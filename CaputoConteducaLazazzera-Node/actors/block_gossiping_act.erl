@@ -11,7 +11,7 @@ blockGossiping(PidRoot,PidB,PidRestore,Blocks) ->
     receive
         % PidB mi ha notificato l'arrivo di un nuovo blocco
         % Reconstr è un booleano per decidere se fare o meno la ricostruzione
-        {updateLocal,Sender,Blocco, Reconstr} -> 
+        {updateLocal,Sender,Blocco} -> 
             case lists:member(Blocco,Blocks) of
                 true -> 
                     % se lo conosco non faccio nulla
@@ -22,10 +22,7 @@ blockGossiping(PidRoot,PidB,PidRestore,Blocks) ->
                     % avvio il gossiping (chiedo a PidRoot gli amichetti) 
                     spawn(fun() -> sendBlock(PidRoot,Blocco) end), 
                     % avvio PidRestore di avviare la ricostruzione
-                    case Reconstr of
-                        true -> PidRestore ! {newBlock, Sender,Blocco};
-                        false -> no_reconstr
-                    end,
+                    PidRestore ! {newBlock, Sender,Blocco},
                     % aggiungo il blocco alla lista dei blocchi
                     blockGossiping(PidRoot,PidB,PidRestore,[Blocco]++Blocks)
             end;
