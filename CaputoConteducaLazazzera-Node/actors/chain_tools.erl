@@ -1,5 +1,5 @@
 -module(chain_tools).
--export([buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1,validityBlock/2]).
+-export([buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1]).
 -import (proof_of_work , [solve/1,check/2]).
 -import (utils , [sendMessage/2,sleep/1]).
 -define(TIMEOUT_TO_ASK, 5000).
@@ -7,11 +7,9 @@
 
 %%%%%%%%% * PUBLIC *%%%%%%%%
 buildInitChain(PidRoot) ->
-    % io:format("[~p] Sto costruendo una catena iniziale...~n",[PidRoot]),
     PidRoot ! {checkFriendsList, self()}, % chiedo la lista di amici a Root
     FList = receive 
         {myFriendsList, FriendsList} -> 
-            % io:format("[~p] HO QUESTI AMICI : ~p~n",[PidRoot,FriendsList]),
             FriendsList 
     end,
     % partendo dalla lista di amici chiedo una catena iniziale
@@ -19,41 +17,46 @@ buildInitChain(PidRoot) ->
 
 reconstructing(PidRoot,Blocco, Chain,Sender) -> 
     {_,ID_Prev,ListT,_} = Blocco,
-    %? Caso 0: Chain Empty 
+
+    %? Caso 0:
+    %?     Chain è vuota. Inserisco il Blocco direttamente
     case length(Chain) =:= 0 of
         true -> 
-            % io:format("~n ! Caso0: ok ~n"),
             throw({done,[Blocco],ListT});
         false -> continue
     end,
 
-    %? Caso 1: Testa di Chain punto di attacco 
+    %? Caso 1:
+    %?     Blocco va inserito in cima alla mia catena --> ottimo
+    %?     ID_Prev di Blocco è la testa di Chain 
     [{ID_MyBlockHead, _, _,_} | _] = Chain,
     case ID_MyBlockHead =:= ID_Prev of
         true -> 
-            % io:format("~nCaso1: ok~n~n"),
             throw({done,[Blocco] ++ Chain, ListT});
         false -> 
-            % io:format("~nQUI ci sono allora vado in caso 2 o 3~n"),
             continue
     end,
 
     case searchBlock(ID_Prev,Chain) of
         none ->
-            %? Caso 3: Chain non contiene ID_Prev
-            % io:format("~nCaso3: ok~n~n"),
+             %? Caso 3 (HARD):
+            %?     Se ID_Prev di Blocco non fa parte della mia catena 
+            %?     chiedo al Sender (ed eventualmente ai miei amici)
+            %?     di invarmi il Blocco ID_Prev in modo
+            %?     da capire il punto della biforcazione.
+            %?     Trovato il punto di biforcazione (conosco l'ID_Prev)
+            %?     confronto le catene (in caso di parità teniamo la nostra :) )
             PidRoot ! {checkFriendsList, self()},
             FList = receive
                 {myFriendsList, FriendList } -> FriendList -- [Sender]
             end,
             searching([], Chain, Blocco, Sender, FList);
         _ -> 
-            % io:format("~nCaso2: ok~n~n"),
-            %? Caso 2: ID_Prev fa parte di Chain e quindi Scarto Blocco in quanto vecchio
+            %? Caso 2:
+            %?     ID_Prev di Blocco non è la testa ma un blocco più 
+            %?     vecchio della catena --> lo scarto
             throw(discarded)
     end.
-
-   
 
 
 % ritorna il blocco con ID = ID_Search 
@@ -70,29 +73,7 @@ searchBlock(ID_Search,Chain) ->
             end
     end.
 
-% se le TinBlock sono contenute in Mined o in Mining rifiuto il blocco
-% ma salvo le T che no ho minato in ToMine
-validityBlock({ToMine,TMined},{_,_,TinBlock,_}) -> 
-    % quali sono le T non minate in Blocco arrivato?
-    NotMined = TinBlock -- TMined,    
-    if 
-        length(TinBlock) > length(NotMined) ->
-            % allora ho gia minato qualche T in Blocco arrivato
-            % perciò rifiuto il Blocco        
-            NewToMine = (ToMine -- NotMined) ++ NotMined, % per evitare eventuali duplicati
-            % TMined non viene aggiornata in quanto il blocco non viene accettato
-            {NewToMine, TMined, false};
-        length(TinBlock) =:= length(NotMined) ->
-            % nel blocco ci sono T che non ho minato ma non posso minarle in quanto
-            % presenti nel blocco arrivato
-            % aggiorno lista di T da minare e già minate
-            NewToMine = ToMine -- TinBlock,
-            NewTMined = TMined ++ TinBlock,
-            {NewToMine, NewTMined, true};
-        true ->
-            % mai nella vita, però...
-            {ToMine, TMined, true}
-end.
+
 
 
 checkBlock({_, ID_Prev,ListT,Solution}) -> 
@@ -105,34 +86,19 @@ checkBlock({_, ID_Prev,ListT,Solution}) ->
 % Quando trovo un blocco in comune cerco la posizione di quel Blocco 
 % in MyChain e lo sommo alla OtherChain in modo da poter scegliere la catena più lunga
 otherChainFinished({_,none,_,_},OtherChain,MyChain) -> 
-    case length(MyChain) > length(OtherChain) of
+    case length(MyChain) >= length(OtherChain) of
         true -> 
-            % io:format("~n[Ultimo blocco] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),
             throw(discarded);
         false ->
+            % A parità di lughezze rimaniamo con la nostra catena
             NewT = lists:flatmap(fun(A)->{_,_,X,_}=A, X end,OtherChain),
-            case length(MyChain) =:= length(OtherChain) of
-                    true -> 
-                        case rand:uniform(2) of
-                            1 -> 
-                                % io:format("~n[Ultimo blocco]OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (Random Stessa lunghezza)~n",[OtherChain,MyChain]),                        
-                                throw(discarded);
-                            2 -> 
-                                % io:format("~n[Ultimo blocco]OtherChain: ~p~nMyChain: ~p~nScelta: Scarto MyChain (Random Stessa lunghezza)~n",[OtherChain,MyChain]),                        
-                                throw({done,OtherChain,NewT})
-                        end;
-                    false ->
-                        % la tua catena è maggiore
-                        % io:format("~n[Ultimo blocco]OtherChain: ~p~nMyChain: ~p~nScelta: Scarto MyChain (OtherChain è maggiore)~n",[OtherChain,MyChain]),                        
-                        throw({done,OtherChain,NewT})
-
-                end
+            throw({done,OtherChain,NewT})
     end;
 otherChainFinished(_,_,_) -> none.
 
 checkIfContainsTrans(ChainCommon,OtherChain) ->
-    TInCommonChain = lists:flatmap(fun(A)->{_,_,X}=A, X end,ChainCommon),
-    TInOtherChain = lists:flatmap(fun(A)->{_,_,X}=A, X end,OtherChain),
+    TInCommonChain = lists:flatmap(fun(A)->{_,_,X,_}=A, X end,ChainCommon),
+    TInOtherChain = lists:flatmap(fun(A)->{_,_,X,_}=A, X end,OtherChain),
     SetTInCommonChain = sets:from_list(TInCommonChain),
     SetTInOtherChain = sets:from_list(TInOtherChain),
     Intersection = sets:intersection(SetTInCommonChain,SetTInOtherChain),
@@ -171,29 +137,13 @@ searching(OtherChain, MyChain, Blocco, Sender,FList) ->
                         false ->
                             otherChainAccepted(OtherChain,ChainCommon)
                     end;
-                false-> %* CI FIDIAMO DELLA NOSTRA CATENA ANCHE A PARITA' DI LUNGHEZZA OLTRE A QUANDO SIAMO MAGGIORI
+                false-> 
+                    % CI FIDIAMO DELLA NOSTRA CATENA ANCHE A PARITA' DI LUNGHEZZA OLTRE A QUANDO SIAMO MAGGIORI
                     throw(discarded) % scarto il blocco e rimane la catena mia
-
-                    % Se hanno la stessa dim
-                    % case LengthOtherChainToConfr =:= LengthMyChainToConfr of
-                    %     true -> 
-                    %         case rand:uniform(2) of
-                    %             1 -> 
-                    %                 % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
-                    %                 throw(discarded);
-                    %             2 -> otherChainAccepted(OtherChain,ChainCommon)
-
-                    %         end;
-                    %     false ->
-                            % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
-                            % throw(discarded) % scarto il blocco e rimane la catena mia
-        
-                % end
             end
     end.    
 
 otherChainAccepted(OtherChain,ChainCommon) ->
-    % io:format("~n[Blocco Trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),
     % tutte le transizione nella parte che sto inserendo
     T_in_Other_Chain = lists:flatmap(fun(A)->{_,_,X,_}=A, X end,OtherChain),
     NewChain = OtherChain ++ ChainCommon,
@@ -213,12 +163,16 @@ indexBlock(B,[H|T], Index) ->
 searchPrevious({_,ID_Prev,_,_},Sender,FList) ->
     %! Bloccante max 5 secondi
     Nonce = make_ref(),
-    sendMessage(Sender, {get_previous,self(),ID_Prev}),
+    sendMessage(Sender, {get_previous,self(),Nonce,ID_Prev}),
     receive 
         {previous,Nonce,Blocco} -> 
-            case checkBlock(Blocco) of
-                true -> Blocco;
-                false -> throw(discarded)
+            case Blocco =:= none of
+                true -> throw(discarded);
+                false ->
+                    case checkBlock(Blocco) of
+                        true -> Blocco;
+                        false -> throw(discarded)
+                    end
             end
     after 
         % se non mi risponde scarto il blocco ricevuto
@@ -231,7 +185,7 @@ searchPreviousToFriends(_,[]) -> throw(discarded);
 searchPreviousToFriends(ID_Prev,FList) -> 
     [Friend | _] = FList,
     Nonce = make_ref(),
-    sendMessage(Friend, {get_previous,self(),ID_Prev}),
+    sendMessage(Friend, {get_previous,self(),Nonce,ID_Prev}),
     receive 
         {previous,Nonce,Blocco} -> 
             case checkBlock(Blocco) of
@@ -245,7 +199,12 @@ searchPreviousToFriends(ID_Prev,FList) ->
     end.
 
 % costruisco la catena tenendo conto delle transazione all'interno dei blocchi
-getRestChain(Friend,Chain,TList,ID_Prev_Current) ->
+%! Friend -> amico corrente a cui sto chiedendo il blocco 
+%! FListToAsk -> amici a cui posso chiedere se Friend non risponde o non ha il Blocco
+%!              se Friend non risponde allora viene scelto un nuovo amico e va rimosso da questa lista
+%!              se invece Friend riponde dicendo che ha il blocco allora FListToAsk = FList -- [Friend] 
+%! FList -> (rimane invarianta) lista totale di amici, serve per ricominciare le eventuali richieste dei blocchi succ
+getRestChain({Friend,FListToAsk,FList},Chain,TList,ID_Prev_Current) ->
     case ID_Prev_Current =:= none of
         % genero un Eccezione e mi fermo in quanto la catena che sto percorrendo è terminata
         true -> 
@@ -258,27 +217,58 @@ getRestChain(Friend,Chain,TList,ID_Prev_Current) ->
     sendMessage(Friend, {get_previous, self(), Ref, ID_Prev_Current}),
     % io:format("[~p] Chiedo il previous da ~p~n",[self(),Friend]),
     receive
+        {previous, Ref, none} -> 
+            % se Friend non ha il blocco richiesto chiedo ad un altro amico
+            % ma se non so più a chi chiedere allora restituisco {[],[]} caso raro
+            case length(FListToAsk) =:= 0 of
+                true -> throw(none);
+                false -> 
+                    AnotherFriend = lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
+                    getRestChain({AnotherFriend,FListToAsk--[AnotherFriend],FList},Chain,TList,ID_Prev_Current)
+                end;
         {previous, Ref, PrevBlock} ->
-            % io:format("[~p] Arrivato il previous da ~p~n",[self(),Friend]),
-            % ho ricevuto il precedente
             {_,ID_blocco_prev,Transaction,_} = PrevBlock,
-            getRestChain(Friend,Chain ++ [PrevBlock],Transaction++TList,ID_blocco_prev)
-    after ?TIMEOUT_TO_ASK -> throw(none)
+            % se Friend ce l'ha continuo a chiedere a lui
+            getRestChain({Friend,FList --[Friend],FList},Chain ++ [PrevBlock],Transaction++TList,ID_blocco_prev)
+    after ?TIMEOUT_TO_ASK -> 
+        % se dopo N secondi non mi risp e posso chidere a qualcun altro chiedo altrimenti catena vuota
+        case length(FListToAsk) =:= 0 of
+                true -> throw(none);
+                false -> 
+                    % scelgo un friend possibile da FListToAsk e resetto la lista di amici a cui posso chiedere 
+                    % rimuovendo l'amico scelto
+                    AnotherFriend= lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
+                    getRestChain({AnotherFriend,FList--[AnotherFriend],FList},Chain,TList,ID_Prev_Current)
+        end
     end.
 
 % chiede a Friend una catena entro un N secondi 
-getChain(Friend) -> 
-
+getChain(Friend,FListToAsk,FList) -> 
     Nonce = make_ref(),
     sendMessage( Friend , { get_head, self(), Nonce }),
-    % io:format("[~p] Chiedo la testa a ~p~n",[self(),Friend]),
     receive 
+        {head, Nonce, none} -> 
+            % se Friend non ha la testa chiedo ad una altro
+            % ma se non ho più amici a cui chiedere allora catena vuota
+            case length(FListToAsk) =:= 0 of
+                true -> throw(none);
+                false ->
+                    AnotherFriend = lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
+                    getChain(AnotherFriend,FListToAsk--[AnotherFriend],FList)
+            end;
         {head, Nonce, Blocco} -> 
-            % io:format("[~p] Arrivata la testa da ~p~n",[self(),Friend]),
             % ho ricevuto la testa di una catena e continuo a chiedere il resto a Friend
             {_,ID_Prev,Transaction,_} = Blocco,
-            getRestChain(Friend,[Blocco],[Transaction],ID_Prev)
-        after ?TIMEOUT_TO_ASK -> throw(none)
+            getRestChain({Friend,FList--[Friend],FList},[Blocco],[Transaction],ID_Prev)
+        after
+            ?TIMEOUT_TO_ASK -> 
+                % se dopo N secondi non mi risp e posso chidere a qualcun altro chiedo altrimenti catena vuota
+                case length(FListToAsk) =:= 0 of
+                        true -> throw(none);
+                        false ->
+                            AnotherFriend = lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
+                            getChain(AnotherFriend,FListToAsk--AnotherFriend,FList)
+                end
     end.
 
 askChainFriends(FList) ->
@@ -287,14 +277,30 @@ askChainFriends(FList) ->
         false -> 
             Friend = lists:nth(rand:uniform(length(FList)),FList),
             try 
-                getChain(Friend) 
+                getChain(Friend,FList--[Friend],FList) 
             catch
-                % se la catena è vuota oppure 
-                % Friend non ha risposto entro il timeout
-                none -> askChainFriends(FList -- [Friend]); % chiedo ad un altro amico
-                % appena viene trovata una catena 
+                % se non so più a chi chiedere sollevo "none" e quindi catena vuota e nessuna TMined
+                none -> {[],[]};
+                % quando arrivo all'ultimo blocco della catena (idPrev =none ) restituisco
                 {chain, ChainAndTransaction} -> ChainAndTransaction
             end
     end.
 
 
+
+% !!!Appunti: Se scegliamo random in caso di catena di lunghezza uguale
+% Se hanno la stessa dim
+% case LengthOtherChainToConfr =:= LengthMyChainToConfr of
+%     true -> 
+%         case rand:uniform(2) of
+%             1 -> 
+%                 % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
+%                 throw(discarded);
+%             2 -> otherChainAccepted(OtherChain,ChainCommon)
+
+%         end;
+%     false ->
+        % io:format("~n[Blocco trovato] OtherChain: ~p~nMyChain: ~p~nScelta: Scarto OtherChain (MyChain è maggiore)~n",[OtherChain,MyChain]),           
+        % throw(discarded) % scarto il blocco e rimane la catena mia
+
+% end
