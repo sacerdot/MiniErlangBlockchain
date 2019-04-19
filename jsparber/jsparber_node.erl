@@ -8,7 +8,7 @@
 % TODO: Ask all friends for more friends before reasking the teacher
 
 -define(TEACHERNODE, teacher_node@librem).
--define(DEAD_TOLERANZ, 3).
+-define(DEAD_TOLERANZ, 1).
 
 msg_anomaly(Sender, Msg) ->
   X = rand:uniform(10),
@@ -26,7 +26,7 @@ watch(Main, Node) -> spawn(fun () -> watch(Main, Node, ?DEAD_TOLERANZ) end).
 watch(Main, Node, Toleranz) ->
   sleep(10),
   Ref = make_ref(),
-  msg_anomaly(Node, {ping, self(), Ref}),
+  Node ! {ping, self(), Ref},
   receive
     {pong, Ref} -> watch(Main, Node, ?DEAD_TOLERANZ)
   after 2000 ->
@@ -70,7 +70,7 @@ loop(Nodes, Old_nonces) ->
   Nonces = [check_friends_list(Nodes, Old_nonces) | Old_nonces],
   receive
     {ping, Sender, Ref} ->
-      msg_anomaly(Sender, {pong, Ref}), loop(Nodes, Nonces);
+      Sender ! {pong, Ref}, loop(Nodes, Nonces);
     {request_friends, Teacher} ->
       New_nonces = case length(Nodes) < 3 of
                      true ->
@@ -84,7 +84,7 @@ loop(Nodes, Old_nonces) ->
       loop(Nodes, New_nonces -- [{int_friends, 1}]);
     {get_friends, Sender, Nonce} ->
       New_nodes = add_nodes([Sender], Nodes),
-      msg_anomaly(Sender , {friends, Nonce, New_nodes}),
+      Sender ! {friends, Nonce, New_nodes},
       loop(New_nodes, Nonces);
     {remove_nonce, Rm_nonces} ->
       %TODO: resend message if we actually remove nonces
@@ -350,8 +350,7 @@ get_block([{Block_id, Prev_block_id,
 ask_teacher(Self) ->
   Ref = make_ref(),
   io:format("Ask teacher for more friends~n"),
-  msg_anomaly({teacher_node, ?TEACHERNODE} ,
-              {get_friends, Self, Ref}),
+  {teacher_node, ?TEACHERNODE} ! {get_friends, Self, Ref},
   {friends, Ref}.
 
 ask_friend(Main, Nodes) ->
@@ -359,7 +358,7 @@ ask_friend(Main, Nodes) ->
   io:format("I only have ~p friends. Ask a friend "
             "for more friends~n",
             [length(Nodes)]),
-  msg_anomaly( lists:nth(rand:uniform(length(Nodes)), Nodes) ,  {get_friends, Main, Ref}),
+  lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_friends, Main, Ref},
   {friends, Ref}.
 
 add_nodes([], Nodes) -> Nodes;
