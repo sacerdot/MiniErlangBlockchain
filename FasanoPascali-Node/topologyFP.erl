@@ -41,7 +41,7 @@ managerNonce(Nonces) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Step: 0-> Skip; 1-> 1° richiesta; 2-> 2° richiesta nodeFP:sleep; 3-> chiedo al nodo prof.
 newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage) ->
-  io:format("~p Start newFriendsRequest-> Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
+%%  io:format("~p Start newFriendsRequest-> Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
   MyPid = self(),
   case Step of
     0 -> ok; %% Skip
@@ -96,12 +96,11 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
   end.
 
 gossipingMessage(Friends) ->
-  io:format("+++++ gossipingMessage -> Friends :  ~p~n", [Friends]),
   receive
     {updateFriends, NewFriends} ->
       gossipingMessage(NewFriends);
     {gossipingMessage, Message} ->
-      io:format("+++++ gossipingMessage->  : transaction ~p~n", [Message]),
+      io:format("+++++ gossipingMessage -> Friends :  ~p Message:  ~p~n", [Friends, Message]),
       gossipingMessage(Friends, Message)
   end,
   gossipingMessage(Friends).

@@ -9,7 +9,7 @@
 -module(testFP).
 -author("andrea").
 -export([compileModule/0, spawn5/0, sendTransaction/2,
-  testGossip/0, testBlockKillPID3/0, testBlockANDtransactionDouble/0,
+  testGossip/0, testGossip1/0, testBlockKillPID3/0, testBlockANDtransactionDouble/0,
   minimalTest/0, stressfulTest/0]).
 
 compileModule() ->
@@ -36,10 +36,13 @@ sendTransaction(Pid, Payload) ->
   io:format("INVIO transazione------------:::::::::::::::::::::::::::::::-->~p~n", [Payload]),
   Pid ! {push, {make_ref(), Payload}}.
 
+testGossip1() ->
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = spawn5(),
+  sendTransaction(TempPid1, pid1__transazione1).
+
 testGossip() ->
   {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = spawn5(),
   nodeFP:sleep(7),
-  sendTransaction(TempPid1, pid1__transazione1),
   nodeFP:sleep(2),
   sendTransaction(TempPid2, pid2__transazione2),
   sendTransaction(TempPid3, pid3__transazione3),
@@ -132,10 +135,11 @@ stressfulTestLoop() ->
   spawn(nodeFP, init, []),
   stressfulTestLoop().
 
-%%<0.93.0>,<0.94.0>,<0.95.0>,<0.96.0>,<0.133.0>
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% cmd test
 %% c(testFP).
 %% testFP:testGossip().
+%% testFP:testGossip1().
 %% testFP:testBlockKillPID3().
 %% testFP:testBlockANDtransactionDouble().
 
@@ -146,7 +150,18 @@ stressfulTestLoop() ->
 %% testFP:minimalTest().
 %% testFP:stressfulTest().
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% todo test terminati
+%% topologia amici testata e funzionante
+%% gossiping testato e funzionante
+%% mining blocco
+%%
 
-
-
-
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% todo testare:
+%% +- update della visione della catena
+%% algoritmo di ricostruzione della catena
+%% se non ricevo blocchi per X tempo ciedo la testa todo non ancora integrato
+%% transazioni ripetute nei blocchi
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
