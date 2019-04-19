@@ -103,7 +103,7 @@ initManagerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransact
   managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, []).
 
 managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain) ->
-  io:format("~p -> MANAGER BLOCK -> BlockChain~n~p ~n", [PIDMain, BlockChain]),
+%%  io:format("~p -> MANAGER BLOCK -> BlockChain~n~p ~n", [PIDMain, BlockChain]),
   receive
     {update, Sender, {IDBlock, IDPreviousBlock, BlockTransactions, Solution}} ->
       Block = {IDBlock, IDPreviousBlock, BlockTransactions, Solution},
@@ -177,7 +177,7 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
 
     {head, Nonce, Block} ->
       TempNonce = make_ref(),
-      PIDManagerNonce ! {checkNonce, Nonce, TempNonce},
+      PIDManagerNonce ! {checkNonce, Nonce, TempNonce, self()},
       receive
         {nonce, false, TempNonce} -> do_nothing;
         {nonce, ok, TempNonce} ->
@@ -191,7 +191,7 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
     {isForkPoint, NewPartBlockChain, Sender, Nonce} ->
       IdPrevious = element(2, lists:nth(1, NewPartBlockChain)),
       NewBlockChain = case IdPrevious of
-                        none ->
+                        none ->%% trovato punto di fork quindi controlla quale catena è più lunga
                           Sender ! {stopRebuild, Nonce},
                           establishLongestChain(PIDManagerTransactions, BlockChain, NewPartBlockChain, 0);
                         _ -> case index_of({IdPrevious, none, none, none}, BlockChain) of
@@ -222,6 +222,8 @@ establishLongestChain(ManagerTransaction, BlockChain, NewBlockChain, PointFork) 
   if
     LengthNewBC > LengthBC ->
       TransactionsToRemovePool = extractTransaction(lists:sublist(NewBlockChain, PointFork + 1, LengthNewBC - PointFork)),
+
+      %% Controlla che le TransactionsToRemovePool, ovvero le transazioni della parte nuova della blockChain non siano contenute nella parte vecchia
       case checkTransactionsToBlockChain(TransactionsToRemovePool, lists:sublist(NewBlockChain, 1, PointFork)) of
         false -> BlockChain;
         true ->
@@ -249,28 +251,28 @@ equalsPrevious(check, none, []) -> true;
 equalsPrevious(check, Item, [{Item, _, _, _} | _]) -> true;
 equalsPrevious(check, _, _) -> false.
 
-mining(PIDManagerTransactions, PIDManagerBlocks) ->
-  io:format("~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks]),
-  Nonce = make_ref(),
-  PIDManagerTransactions ! {getTransactionsToMine, self(), Nonce},
-  receive
-    {transactionsToMine, Nonce, TransactionsToMine} ->
-      case TransactionsToMine of
-        [] -> nodeFP:sleep(1), mining(PIDManagerTransactions, PIDManagerBlocks);
-        _ ->
-          Nonce2 = make_ref(),
-          PIDManagerBlocks ! {get_head, self(), Nonce2},
-          receive
-            {head, Nonce2, Block} ->
-              IDPreviousBlock = case Block of
-                                  none -> none;
-                                  _ -> element(1, Block)
-                                end,
-              Solution = proof_of_work:solve({IDPreviousBlock, TransactionsToMine}),
-              PIDManagerBlocks ! {update, self(), {make_ref(), IDPreviousBlock, TransactionsToMine, Solution}}
-          end
-      end
-  end.
+mining(PIDManagerTransactions, PIDManagerBlocks) -> stop.
+%%  io:format("~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks]),
+%%  Nonce = make_ref(),
+%%  PIDManagerTransactions ! {getTransactionsToMine, self(), Nonce},
+%%  receive
+%%    {transactionsToMine, Nonce, TransactionsToMine} ->
+%%      case TransactionsToMine of
+%%        [] -> nodeFP:sleep(1), mining(PIDManagerTransactions, PIDManagerBlocks);
+%%        _ ->
+%%          Nonce2 = make_ref(),
+%%          PIDManagerBlocks ! {get_head, self(), Nonce2},
+%%          receive
+%%            {head, Nonce2, Block} ->
+%%              IDPreviousBlock = case Block of
+%%                                  none -> none;
+%%                                  _ -> element(1, Block)
+%%                                end,
+%%              Solution = proof_of_work:solve({IDPreviousBlock, TransactionsToMine}),
+%%              PIDManagerBlocks ! {update, self(), {make_ref(), IDPreviousBlock, TransactionsToMine, Solution}}
+%%          end
+%%      end
+%%  end.
 
 managerHead(MainPID) ->
   receive

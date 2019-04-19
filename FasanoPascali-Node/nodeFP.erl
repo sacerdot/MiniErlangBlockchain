@@ -21,27 +21,27 @@ init() ->
 
   %% todo catturare morte dell'attore e riavviarlo per i 4 sottostanti
   %% di conseguenza dopo averlo riavviato va effettuato l'upload dei PID nei vari attori che lo riportano
-  ManagerNonce = spawn_link(topologyFP, managerNonce, [PID, []]),
-  ManagerMessage = spawn_link(topologyFP, sendGetFriends, [PID, ManagerNonce]),
+  PIDManagerNonce = spawn_link(topologyFP, managerNonce, [[]]),
+  PIDManagerMessage = spawn_link(topologyFP, sendGetFriends, [PID, PIDManagerNonce]),
   PIDGossipingMessage = spawn_link(topologyFP, gossipingMessage, [[]]),
-  ManagerFriends = spawn_link(topologyFP, newFriendsRequest, [PID, [], 0, ManagerNonce, ManagerMessage, PIDGossipingMessage]),
-  ManagerTransaction = spawn_link(blockChain, managerTransactions, [PID, PIDGossipingMessage, [], []]),
-  ManagerBlock = spawn_link(blockChain, initManagerBlock, [PID, ManagerFriends, ManagerNonce, ManagerTransaction, PIDGossipingMessage]),
+  PIDManagerFriends = spawn_link(topologyFP, newFriendsRequest, [PID, [], 0, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage]),
+  PIDManagerTransaction = spawn_link(blockChain, managerTransactions, [PID, PIDGossipingMessage, [], []]),
+  PIDManagerBlock = spawn_link(blockChain, initManagerBlock, [PID, PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDGossipingMessage]),
   %%attore che si occupa di tenere aggiornata la mia blockchain in caso non abbiamo amici (si cerca di capire se non abbiamo amici quando non riceviamo ping per tot tempo)
-  ManagerHead = spawn_link(blockChain, managerHead, [PID]),
-  loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead).
+  PIDManagerHead = spawn_link(blockChain, managerHead, [PID]),
+  loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead).
 
-loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead) ->
+loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead) ->
 %%      chiedo amici al teacher_node
   NonceGlobalSend = make_ref(),
-  ManagerNonce ! {updateNonce, NonceGlobalSend},
+  PIDManagerNonce ! {updateNonce, NonceGlobalSend},%% serve perchè controllo il Nonce bel managerFriends
   TeacherPID = global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
   receive
     {friends, NonceGlobalSend, FriendsOfFriend} ->
-      ManagerFriends ! {friends, NonceGlobalSend, FriendsOfFriend}
-  after 10000 -> loopInit(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead)
+      PIDManagerFriends ! {friends, NonceGlobalSend, FriendsOfFriend}
+  after 10000 -> loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead)
   end,
-  loopMain(ManagerFriends, ManagerNonce, ManagerTransaction, ManagerBlock, ManagerHead, TeacherPID).
+  loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID).
 
 loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID) ->
   receive

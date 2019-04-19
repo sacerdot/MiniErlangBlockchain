@@ -8,9 +8,11 @@
 %%%-------------------------------------------------------------------
 -module(testFP).
 -author("andrea").
--export([test/0, minimalTest/0, stressfulTest/0, testX/0, testBlock/0, testA/0, testB/0]).
+-export([compileModule/0, spawn5/0, sendTransaction/2,
+  testGossip/0, testBlockKillPID3/0, testBlockANDtransactionDouble/0,
+  minimalTest/0, stressfulTest/0]).
 
-initTest() ->
+compileModule() ->
   compile:file(teacher_node),
   compile:file(nodeFP),
   compile:file(topologyFP),
@@ -18,46 +20,46 @@ initTest() ->
   spawn(teacher_node, main, []),
   nodeFP:sleep(3).
 
-test() ->
-  initTest(),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []).
-
-
-sendTransactions(Pid, Transaction) ->
-  io:format("INVIO transazione------------:::::::::::::::::::::::::::::::-->~p~n", [Transaction]),
-  Pid ! {push, {make_ref(), Transaction}}.
-
-testBlock() ->
+spawn5() ->
   io:format("Start ~n"),
-  initTest(),
+  compileModule(),
   TempPid1 = spawn(nodeFP, init, []),
   TempPid2 = spawn(nodeFP, init, []),
   TempPid3 = spawn(nodeFP, init, []),
   TempPid4 = spawn(nodeFP, init, []),
   nodeFP:sleep(2),
-  io:format("SPAWN+++++++++++++++++ TempPid5----------------------------------------->~n"),
   TempPid5 = spawn(nodeFP, init, []),
+  io:format("SPAWN +++++++++++++++++ 5 NODI----------------------------------------->~n"),
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5}.
 
-  nodeFP:sleep(5),
+sendTransaction(Pid, Payload) ->
+  io:format("INVIO transazione------------:::::::::::::::::::::::::::::::-->~p~n", [Payload]),
+  Pid ! {push, {make_ref(), Payload}}.
 
-  sendTransactions(TempPid1, transazione1),
-  nodeFP:sleep(3),
-  sendTransactions(TempPid2, transazione2),
-  sendTransactions(TempPid3, transazione3),
-  sendTransactions(TempPid4, transazione4),
-  nodeFP:sleep(5),
-  sendTransactions(TempPid2, transazione5),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid3, transazione6),
+testGossip() ->
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = spawn5(),
+  nodeFP:sleep(7),
+  sendTransaction(TempPid1, pid1__transazione1),
   nodeFP:sleep(2),
-  sendTransactions(TempPid4, transazione7),
+  sendTransaction(TempPid2, pid2__transazione2),
+  sendTransaction(TempPid3, pid3__transazione3),
+  sendTransaction(TempPid4, pid4__transazione4),
+  nodeFP:sleep(10),
+  sendTransaction(TempPid2, pid2__transazione5),
   nodeFP:sleep(1),
-  sendTransactions(TempPid4, transazione8),
+  sendTransaction(TempPid2, pid2__testGossipENDtransazione100),
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5}.
+
+testBlockKillPID3() ->
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = testGossip(),
+  nodeFP:sleep(5),
+  sendTransaction(TempPid3, transazione6),
+  nodeFP:sleep(2),
+  sendTransaction(TempPid4, transazione7),
+  nodeFP:sleep(1),
+  sendTransaction(TempPid4, transazione8),
   nodeFP:sleep(3),
-  sendTransactions(TempPid1, transazione9),
+  sendTransaction(TempPid1, transazione9),
 
   io:format("--------------------Sleep 60-------------------------------~n"),
   nodeFP:sleep(60),
@@ -65,128 +67,59 @@ testBlock() ->
   exit(TempPid3, kill),
 
   nodeFP:sleep(1),
-  sendTransactions(TempPid5, transazione10),
-  sendTransactions(TempPid4, transazione11),
+  sendTransaction(TempPid5, transazione10),
+  sendTransaction(TempPid4, transazione11),
   nodeFP:sleep(1),
-  sendTransactions(TempPid1, transazione12),
-  sendTransactions(TempPid4, transazione13),
+  sendTransaction(TempPid1, transazione12),
+  sendTransaction(TempPid4, transazione13),
   nodeFP:sleep(1),
-  sendTransactions(TempPid1, transazione14),
+  sendTransaction(TempPid2, testBlockKillPID3ENDtransazione100),
+  {TempPid1, TempPid2, TempPid4, TempPid5}.
+
+testBlockANDtransactionDouble() ->
+  {TempPid1, TempPid2, TempPid4, TempPid5} = testBlockKillPID3(),
+  nodeFP:sleep(1),
+  sendTransaction(TempPid5, transazione10),
+  sendTransaction(TempPid1, transazione14),
+  sendTransaction(TempPid5, transazione17),
+  sendTransaction(TempPid4, transazione13),
   nodeFP:sleep(3),
-  sendTransactions(TempPid5, transazione15),
+  sendTransaction(TempPid5, transazione10),
+  sendTransaction(TempPid4, transazione11),
   nodeFP:sleep(1),
-  sendTransactions(TempPid2, transazione16),
+  sendTransaction(TempPid1, transazione12),
+  sendTransaction(TempPid4, transazione13),
+  sendTransaction(TempPid5, transazione15),
+  nodeFP:sleep(1),
+  sendTransaction(TempPid2, transazione16),
+  sendTransaction(TempPid2, transazione16),
+  sendTransaction(TempPid5, transazione20),
   nodeFP:sleep(5),
-  sendTransactions(TempPid5, transazione17),
+  sendTransaction(TempPid5, transazione17),
   nodeFP:sleep(2),
-  sendTransactions(TempPid1, transazione18),
+  sendTransaction(TempPid1, transazione18),
   nodeFP:sleep(5),
-  sendTransactions(TempPid2, transazione19),
-  sendTransactions(TempPid5, transazione20),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid1, transazione21),
-  nodeFP:sleep(3),
-  sendTransactions(TempPid5, transazione22),
-  sendTransactions(TempPid5, transazione23),
-  sendTransactions(TempPid2, transazione24),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid2, transazione25),
-  sendTransactions(TempPid5, transazione26),
-  nodeFP:sleep(2),
-  sendTransactions(TempPid4, transazione27),
-  sendTransactions(TempPid1, transazione28),
-  nodeFP:sleep(5),
-  sendTransactions(TempPid5, transazione29),
-  sendTransactions(TempPid4, transazione30),
+  sendTransaction(TempPid2, transazione19),
+  sendTransaction(TempPid5, transazione20),
+  sendTransaction(TempPid2, transazione16),
   nodeFP:sleep(10),
-  sendTransactions(TempPid2, eNDtransazione100).
-
-
-testA() ->
-  io:format("Start ~n"),
-  initTest(),
-  TempPid1 = spawn(nodeFP, init, []),
-  TempPid2 = spawn(nodeFP, init, []),
-  TempPid3 = spawn(nodeFP, init, []),
-  TempPid4 = spawn(nodeFP, init, []),
-  nodeFP:sleep(2),
-  io:format("SPAWN+++++++++++++++++ TempPid5----------------------------------------->~n"),
-  spawn(nodeFP, init, []),
-
-  nodeFP:sleep(5),
-
-  sendTransactions(TempPid1, transazione1),
-
-  nodeFP:sleep(2),
-  sendTransactions(TempPid2, transazione2),
-  sendTransactions(TempPid3, transazione3),
-  sendTransactions(TempPid4, transazione4),
-  nodeFP:sleep(10),
-  sendTransactions(TempPid2, transazione5),
-  nodeFP:sleep(1),
-
-  sendTransactions(TempPid2, eNDtransazione100).
-
-testB() ->
-  io:format("Start ~n"),
-  initTest(),
-  TempPid1 = spawn(nodeFP, init, []),
-  TempPid2 = spawn(nodeFP, init, []),
-  TempPid3 = spawn(nodeFP, init, []),
-  TempPid4 = spawn(nodeFP, init, []),
-  nodeFP:sleep(2),
-  io:format("SPAWN+++++++++++++++++ TempPid5----------------------------------------->~n"),
-  TempPid5 = spawn(nodeFP, init, []),
-
-  nodeFP:sleep(5),
-
-  sendTransactions(TempPid1, transazione1),
-
-  nodeFP:sleep(2),
-  sendTransactions(TempPid2, transazione2),
-  sendTransactions(TempPid3, transazione3),
-  sendTransactions(TempPid4, transazione4),
-  nodeFP:sleep(10),
-  sendTransactions(TempPid2, transazione5),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid3, transazione6),
-  nodeFP:sleep(2),
-  sendTransactions(TempPid4, transazione7),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid4, transazione8),
-  nodeFP:sleep(3),
-  sendTransactions(TempPid1, transazione9),
-
-  io:format("--------------------Sleep 60-------------------------------~n"),
-  nodeFP:sleep(60),
-  io:format("--------------------KILL TempPid3-------------------------------~n"),
-  exit(TempPid3, kill),
-
-  nodeFP:sleep(1),
-  sendTransactions(TempPid5, transazione10),
-  sendTransactions(TempPid4, transazione11),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid1, transazione12),
-  sendTransactions(TempPid4, transazione13),
-  nodeFP:sleep(1),
-  sendTransactions(TempPid2, eNDtransazione100).
+  sendTransaction(TempPid2, eNDtransazione100).
 
 minimalTest() ->
-  initTest(),
-  spawn(nodeFP, init, []),
-  nodeFP:sleep(11),
-  TempPid = spawn(nodeFP, init, []),
-  nodeFP:sleep(5),
-  TempPid1 = spawn(nodeFP, init, []),
-  TempPid2 = spawn(nodeFP, init, []),
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = spawn5(),
   nodeFP:sleep(20),
-  exit(TempPid, kill),
   exit(TempPid1, kill),
   nodeFP:sleep(5),
-  exit(TempPid2, kill).
+  exit(TempPid2, kill),
+  nodeFP:sleep(5),
+  exit(TempPid3, kill),
+  nodeFP:sleep(10),
+  exit(TempPid4, kill),
+  nodeFP:sleep(15),
+  exit(TempPid5, kill).
 
 stressfulTest() ->
-  test(),
+  spawn5(),
   stressfulTestLoop().
 
 stressfulTestLoop() ->
@@ -197,69 +130,23 @@ stressfulTestLoop() ->
   spawn(nodeFP, init, []),
   spawn(nodeFP, init, []),
   spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
-  spawn(nodeFP, init, []),
   stressfulTestLoop().
 
-testGossip()->
-  io:format("Start ~n"),
-  initTest(),
-  TempPid1 = spawn(nodeFP, init, []),
-  TempPid2 = spawn(nodeFP, init, []),
-  TempPid3 = spawn(nodeFP, init, []),
-  TempPid4 = spawn(nodeFP, init, []),
-  nodeFP:sleep(1),
-  TempPid5 = spawn(nodeFP, init, []),
-
-  sendTransactions(TempPid1, transazione1),
-
-  nodeFP:sleep(2),
-  sendTransactions(TempPid2, transazione2),
-  sendTransactions(TempPid3, transazione3),
-  sendTransactions(TempPid4, transazione4),
-  nodeFP:sleep(10),
-  sendTransactions(TempPid2, transazione5),
-  nodeFP:sleep(1),
-
-  sendTransactions(TempPid2, eNDtransazione100).
-
+%%<0.93.0>,<0.94.0>,<0.95.0>,<0.96.0>,<0.133.0>
 
 %% c(testFP).
-%% testFP:testA().
-%% testFP:testB().
-%% testFP:testBlock().
+%% testFP:testGossip().
+%% testFP:testBlockKillPID3().
+%% testFP:testBlockANDtransactionDouble().
 
-
-
-
-%% c(testFP). testFP:test().  exit(<0.71.0>, kill). spawn(nodeFP, init, []).
-%% testFP:minimalTest().
-%% testFP:testX().
-%% testFP:testBlock().
-%% exit(<0.68.0>, kill).
-%% exit(<0.69.0>, kill).
-%% exit(<0.70.0>, kill).
+%% sendTransaction(<0.82.0>, ciao111111333333311)
+%% exit(<0.82.0>, kill).
 %% spawn(nodeFP, init, []).
 
-
-testX() ->
-  BlockChain = [{2, 5, fsdf, sads}, {5, 2, adsd, sad}, {7, 2, adsd, sad}, {10, 2, adsd, sad}],
-
-  case index_of(7, BlockChain) of
-    not_found -> do_nothing;
-    N -> ok
-  end.
+%% testFP:minimalTest().
+%% testFP:stressfulTest().
 
 
 
-index_of(Item, List) -> index_of(Item, List, 1).
-index_of(_, [], _) -> not_found;
-index_of(Item, [{Item, _, _, _} | _], Index) -> Index;
-index_of(Item, [_ | Tl], Index) -> index_of(Item, Tl, Index + 1).
+
+
