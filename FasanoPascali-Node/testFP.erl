@@ -238,6 +238,7 @@ testGossip()->
 
 
 
+
 %% c(testFP). testFP:test().  exit(<0.71.0>, kill). spawn(nodeFP, init, []).
 %% testFP:minimalTest().
 %% testFP:testX().
