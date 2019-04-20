@@ -69,7 +69,7 @@ loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
       PIDManagerHead ! {pong, Sender, TeacherPID};
 
     {maybeNoFollowers} ->
-      io:format("~p -> +++++++++++++++++++NoFollowers----------------------------- ~n", [self()]),
+      io:format("~p -> +++++++++++++++++++++++++++++NoFollowers----------------------------- ~n", [self()]),
       TempNonce = make_ref(),
       PIDManagerNonce ! {updateNonce, TempNonce},
       PIDManagerFriends ! {sendMessageRandFriend, {get_head, PIDManagerBlock, TempNonce}}

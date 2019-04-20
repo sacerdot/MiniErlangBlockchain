@@ -9,8 +9,9 @@
 -module(testFP).
 -author("andrea").
 -export([compileModule/0, spawn5/0, sendTransaction/2,
-  testGossip/0, testGossip1/0, testBlockKillPID3/0, testBlockANDtransactionDouble/0,
-  minimalTest/0, stressfulTest/0]).
+  testMining2PrevNone/0, testGossip1/0, testGossip/0,
+  testBlockKillPID3/0, testBlockANDtransactionDouble/0, testFork/0,
+  minimalTest/0, stressfulTest/0, test1/0]).
 
 compileModule() ->
   compile:file(teacher_node),
@@ -19,6 +20,23 @@ compileModule() ->
   compile:file(blockChain),
   spawn(teacher_node, main, []),
   nodeFP:sleep(3).
+
+test1() ->
+  io:format("Start ~n"),
+  compileModule(),
+  TempPid1 = spawn(nodeFP, init, []),
+  sendTransaction(TempPid1, pid1__transazione1),
+  nodeFP:sleep(15),
+  sendTransaction(TempPid1, pid1__transazione2),
+  nodeFP:sleep(15),
+  sendTransaction(TempPid1, pid1__transazione3),
+  nodeFP:sleep(15),
+  sendTransaction(TempPid1, pid1__transazione4),
+  nodeFP:sleep(15),
+  sendTransaction(TempPid1, pid1__transazione5),
+  nodeFP:sleep(15),
+  sendTransaction(TempPid1, pid1__transazione6),
+  sendTransaction(TempPid1, pid1__transazione6END).
 
 spawn5() ->
   io:format("Start ~n"),
@@ -38,7 +56,34 @@ sendTransaction(Pid, Payload) ->
 
 testGossip1() ->
   {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = spawn5(),
-  sendTransaction(TempPid1, pid1__transazione1).
+  sendTransaction(TempPid1, pid1__transazione1),
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5}.
+
+testMining2PrevNone() ->
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = testGossip1(),
+  nodeFP:sleep(30),
+  io:format("pid5__transazione5~n~n~n~n~n~n~n~n~n~n~n~n~n ~n"),
+  sendTransaction(TempPid5, pid5__transazionepid5),
+  nodeFP:sleep(30),
+  sendTransaction(TempPid1, pid1_dopo5),
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5}.
+
+testFork() ->
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = testMining2PrevNone(),
+  nodeFP:sleep(30),
+  io:format("--------------------------------------------~n~n~n~n~n~n~n~n~n~n~n~n~n ~n"),
+  sendTransaction(TempPid1, pid1__transazione2),
+  sendTransaction(TempPid1, pid1__transazione3),
+  sendTransaction(TempPid1, pid1__transazione4),
+  sendTransaction(TempPid1, pid1__transazione5),
+  sendTransaction(TempPid1, pid1__transazione6),
+  sendTransaction(TempPid1, pid1__transazione7),
+  sendTransaction(TempPid1, pid1__transazione8),
+  sendTransaction(TempPid1, pid1__transazione9),
+  sendTransaction(TempPid1, pid1__transazione10),
+  sendTransaction(TempPid1, pid1__transazione11),
+  sendTransaction(TempPid1, pid1__transazione12),
+  {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5}.
 
 testGossip() ->
   {TempPid1, TempPid2, TempPid3, TempPid4, TempPid5} = spawn5(),
@@ -138,16 +183,17 @@ stressfulTestLoop() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% cmd test
 %% c(testFP).
-%% testFP:testGossip().
 %% testFP:testGossip1().
+%% testFP:testMining2PrevNone().
+%% testFP:testFork().
 %% testFP:testBlockKillPID3().
 %% testFP:testBlockANDtransactionDouble().
 
-%% sendTransaction(<0.82.0>, ciao111111333333311)
+%% testFP:sendTransaction(<0.130.0>, ciao111111333333311).
 %% exit(<0.82.0>, kill).
 %% spawn(nodeFP, init, []).
 
-%% testFP:minimalTest().
+%% testFP:test1().
 %% testFP:stressfulTest().
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -159,9 +205,19 @@ stressfulTestLoop() ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% todo testare:
-%% +- update della visione della catena
-%% algoritmo di ricostruzione della catena
-%% se non ricevo blocchi per X tempo ciedo la testa todo non ancora integrato
+%% +- update della visione della catena todo loop-t se non accetto ma effettuo gossip
+%% algoritmo di ricostruzione della catena sembra funzionare ma non testato direttamente
+%% se non ricevo blocchi per X tempo chiedo la testa todo non ancora integrato
 %% transazioni ripetute nei blocchi
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% todo:  Quando  ricevo un blocco che non conosco creo un loop (effettuando il gossiping) finchè qualcuno non mina
+%% todo-- un nuovo blocco con almeno 1 transazione del blocco gossippato in Loop. Ciò avviene specialmente quando 1 nodo
+%% todo-- è isolato dalla rete ovvero quando non ha followers e riceve una transazione, quindi mina e ritrasmette il
+%% todo-- blocco che nessuno inserirà nella catena perchè già più lunga o semplicemente perchè le transazioni sono già
+%% todo-- presenti, quindi lo ritrasmette continuamente creando il loop solo se le transazioni allinterno non sono presenti nella blockChain,
+%% ciò è garantito perchè se parte delle transazioni del nuovo blocco è contenuta già nella BlockChain ritardo il
+%% gossiping sino alla terminazione dell'algoritmo di ricostruzione della catena, gossippando solo se accetto la catena.
+%% todo-- Per ovviare a ciò dovremmo o spostare la ritrasmissione in un momento successiovo all'inserimento del blocco
+%% todo-- nella BlockChain o trattenere in una nuova variabile l'ID dei blocchi scartati per filtrare a monte

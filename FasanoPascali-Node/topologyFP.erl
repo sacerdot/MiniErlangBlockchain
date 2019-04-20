@@ -87,7 +87,7 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
       Sender ! {friends, Nonce, Friends};
 
     {sendMessageRandFriend, Message} ->
-      R = rand:uniform(3),
+      R = rand:uniform(length(Friends)),
       lists:nth(R, Friends) ! Message
   end,
   case length(Friends) of
@@ -100,7 +100,8 @@ gossipingMessage(Friends) ->
     {updateFriends, NewFriends} ->
       gossipingMessage(NewFriends);
     {gossipingMessage, Message} ->
-      io:format("+++++ gossipingMessage -> Friends :  ~p Message:  ~p~n", [Friends, Message]),
+      nodeFP:sleep(1),
+%%      io:format("+++++ gossipingMessage -> Friends:  ~p~n", [Friends]),
       gossipingMessage(Friends, Message)
   end,
   gossipingMessage(Friends).
