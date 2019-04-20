@@ -73,14 +73,13 @@ searchBlock(ID_Search,Chain) ->
             end
     end.
 
-
-
-
 checkBlock({_, ID_Prev,ListT,Solution}) -> 
-        check({ID_Prev,ListT},Solution).
+    check({ID_Prev,ListT},Solution);
+% per evitare blocchi di una forma diversa
+checkBlock(_) -> 
+    false.
 
 %%%%%%%% * PRIVATE *%%%%%%%%
-
 % cerco il punto in comune tra otherChain e MyChain
 % Blocco è il punto potenziale della biforcazione
 % Quando trovo un blocco in comune cerco la posizione di quel Blocco 
@@ -120,7 +119,10 @@ searching(OtherChain, MyChain, Blocco, Sender,FList) ->
     case searchBlock(ID,MyChain) of
         none ->
             % chiedo il precedenti di Blocco a Sender
-            PrevBlock = searchPrevious(Blocco,Sender,FList),
+            {_,ID_Prev,_,_} = Blocco,
+            % metto in cima alla lista Sender in modo da chiedere eventualmente a tutti 
+            % ma prima chiedo a Sender
+            PrevBlock = searchPrevious(ID_Prev,[Sender]++FList),
             % continuo la ricerca cercando PrevBlock
             searching(OtherChain ++ [Blocco], MyChain,PrevBlock,Sender,FList);
         B -> % B è il blocco in comune --> biforcazione trovata
@@ -159,43 +161,26 @@ indexBlock(B,[H|T], Index) ->
         false -> indexBlock(B,T,Index+1)
     end.
 
-% Dato il blocco ritorna il blocco precedente
-searchPrevious({_,ID_Prev,_,_},Sender,FList) ->
-    %! Bloccante max 5 secondi
-    Nonce = make_ref(),
-    sendMessage(Sender, {get_previous,self(),Nonce,ID_Prev}),
-    receive 
-        {previous,Nonce,Blocco} -> 
-            case Blocco =:= none of
-                true -> throw(discarded);
-                false ->
-                    case checkBlock(Blocco) of
-                        true -> Blocco;
-                        false -> throw(discarded)
-                    end
-            end
-    after 
-        % se non mi risponde scarto il blocco ricevuto
-        ?TIMEOUT_TO_ASK -> 
-            searchPreviousToFriends(ID_Prev,FList)
-    end.
-
 % se non ho più amici allora non so più a chi chidere il prev
-searchPreviousToFriends(_,[]) -> throw(discarded);
-searchPreviousToFriends(ID_Prev,FList) -> 
+searchPrevious(_,[]) -> throw(discarded);
+% Il primo a cui chiedo è colui che mi ha mandato il blocco
+searchPrevious(ID_Prev,FList) -> 
     [Friend | _] = FList,
     Nonce = make_ref(),
     sendMessage(Friend, {get_previous,self(),Nonce,ID_Prev}),
     receive 
+        {previous,Nonce,none} -> 
+            searchPrevious(ID_Prev,FList--[Friend]);               
         {previous,Nonce,Blocco} -> 
             case checkBlock(Blocco) of
-                true -> Blocco;
-                false -> throw(discarded)
+                true -> 
+                    Blocco;
+                false -> 
+                    searchPrevious(ID_Prev,FList--[Friend])
             end
     after 
-        % se non mi risponde scarto il blocco ricevuto
         ?TIMEOUT_TO_ASK -> 
-            searchPreviousToFriends(ID_Prev,FList--[Friend])
+            searchPrevious(ID_Prev,FList--[Friend])
     end.
 
 % costruisco la catena tenendo conto delle transazione all'interno dei blocchi
@@ -215,7 +200,6 @@ getRestChain({Friend,FListToAsk,FList},Chain,TList,ID_Prev_Current) ->
     % E' una chiusura quindi Nonce come non può essere utilizzato
     Ref = make_ref(),
     sendMessage(Friend, {get_previous, self(), Ref, ID_Prev_Current}),
-    % io:format("[~p] Chiedo il previous da ~p~n",[self(),Friend]),
     receive
         {previous, Ref, none} -> 
             % se Friend non ha il blocco richiesto chiedo ad un altro amico
@@ -267,7 +251,7 @@ getChain(Friend,FListToAsk,FList) ->
                         true -> throw(none);
                         false ->
                             AnotherFriend = lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
-                            getChain(AnotherFriend,FListToAsk--AnotherFriend,FList)
+                            getChain(AnotherFriend,FListToAsk--[AnotherFriend],FList)
                 end
     end.
 

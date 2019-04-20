@@ -4,7 +4,7 @@
 -import (utils , [sendMessage/2,sleep/1]).
 
 
-
+%! ---- Behavior di Miner Act -----
 compute(PidRoot,PidBlock) ->
     PidBlock ! {minerReady,self()},
     % mi metto in attesa di un nuovo set di transazioni da inserire nel blocco

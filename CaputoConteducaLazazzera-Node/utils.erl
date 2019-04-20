@@ -1,6 +1,6 @@
 -module(utils).
--export([sendMessage/2,sleep/1,formatChain/1]).
--define(RANDOM, 1).
+-export([sendMessage/2,sleep/1,watch/2,watchFriends/2]).
+-define(RANDOM, 10).
 
 sleep(N) -> receive after N*1000 -> ok end.
 
@@ -15,25 +15,19 @@ sendMessage(Dest,Message) ->
         _ -> Dest ! Message
     end.
 
+% Node è il nodo da monitorare
+% Main è il nodo che vuole essere avvisato della morte di Node
+% il watcher ogni 5s fa ping a Node 
+% e se dopo 2s non risponde allora non è piu vivo
+watch(Main,Node) ->
+    sleep(5),
+    Ref = make_ref(),
+    Node ! {ping, self(), Ref},
+    receive
+        {pong, Ref} -> watch(Main,Node)
+    after 2000 -> 
+        Main ! {dead, Node}
+    end.
 
-formatChain(Chain) ->
-    StringFinal = lists:map(
-        fun(X)-> 
-            {ID, ID_Prev, LisT,_} = X, 
-            "-----------------------------------------------\nID_BLOCK: " ++ 
-            to_string(ID) ++ "\n\n" ++ 
-            stringTransaction(LisT) ++ "ID_PREV: " ++ 
-            to_string(ID_Prev)  ++
-            "\n-----------------------------------------------" 
-        end,Chain), StringFinal.
+watchFriends(NewItems,Main) -> [spawn(fun()-> watch(Main,X) end) || X<-NewItems].
 
-
-to_string(StringConvert) ->
-        R = io_lib:format("~p",[StringConvert]),
-        lists:flatten(R).
-stringTransaction(T) ->
-        StringT = lists:map(
-            fun(X) -> 
-                {ID_T, Payload} = X,  
-                "> [" ++ to_string(ID_T) ++ "] " ++ Payload ++ "\n"
-            end, T), StringT.

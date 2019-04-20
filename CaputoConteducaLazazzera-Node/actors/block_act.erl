@@ -4,7 +4,7 @@
 -import (block_gossiping_act , [blockGossiping/4,test/0]).
 -import (reconstruct_act , [chainRestore/3]).
 
--import (utils , [sendMessage/2,sleep/1,formatChain/1]).
+-import (utils , [sendMessage/2,sleep/1]).
 
 -export([start_B_act/2]).
 

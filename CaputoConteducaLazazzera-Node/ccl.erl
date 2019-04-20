@@ -2,12 +2,13 @@
 -import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
 -import (block_act , [start_B_act/2]).
--import (utils , [sendMessage/2,sleep/1]).
-
-
--export([test/0,start/1,test2/0]).
-
+-import (utils , [sendMessage/2,sleep/1,watch/2,watchFriends/2]).
+-export([start/1,easy/0,hard/0]).
 -on_load(load_module_act/0).
+
+%|------------INIT--------------------|
+%| MyNode = spawn(ccl,start,["CCL"]). |
+%|------------------------------------|
 
 
 load_module_act() ->
@@ -19,32 +20,22 @@ load_module_act() ->
     compile:file('actors/miner_act.erl'), 
     compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
-    compile:file('teacher_node.erl'),
-    compile:file('proof_of_work.erl'),
-
+    %compile:file('teacher_node.erl'),
+    %compile:file('proof_of_work.erl'),
     ok.  
 
+start(NameNode) -> 
+    Self = self(),
+    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
+    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
+    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
+    PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
+    loop([],NameNode, PidT, PidB, PidC, []).
 
-
-
-% Node è il nodo da monitorare
-% Main è il nodo che vuole essere avvisato della morte di Node
-% il watcher ogni 5s fa ping a Node 
-% e se dopo 2s non risponde allora non è piu vivo
-watch(Main,Node) ->
-    sleep(5),
-    Ref = make_ref(),
-    Node ! {ping, self(), Ref},
-    receive
-        {pong, Ref} -> watch(Main,Node)
-    after 2000 -> 
-        Main ! {dead, Node}
-    end.
-
-
+%! ----- Behavior di Root Act ---------------- 
 loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
     receive 
-        %! %%%%%%%%% DEBUG %%%%%%%%%%%
+        %! DEBUG 
         {addNewNonce, Nonce} ->
             loop(FriendsList,NameNode,PidT,PidB,PidC,Nonces++[Nonce]);
         {removeNonce, Nonce} ->
@@ -60,7 +51,6 @@ loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) ->
             % lista transazioni da minare
             PidB ! {printTM},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);  
-    
         {print} -> 
             io:format("[~p, ~p]: ha questi amici: ~p~n",[self(),NameNode, FriendsList]),
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces); 
@@ -114,20 +104,17 @@ loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) ->
                     loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces)
             end;
         {dead, Node} ->
-            % io:format("[~p, ~p]: ~p è morto~n",[self(),NameNode,Node]),
             NewList =  FriendsList -- [Node],
             loop(NewList, NameNode, PidT, PidB, PidC, Nonces);
         %!%%%%%%%%%%% GESTIONE TRANSAZIONI %%%%%%%%%%%%%
         % Push locale di una transazione all'attore delegato che provvede a fare gossiping di Transazione
         {push, Transazione} -> 
-            % io:format("[~p, ~p]: Ho ricevuto la transazione ~p~n",[self(),NameNode,Transazione]),
             PidT ! {pushLocal, Transazione, FriendsList}, % si occupa di fare gossiping di T
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
 
         %!%%%%%%%%%%% GESTIONE BLOCCHI %%%%%%%%%%%%%%%%%%
         % sender mi ha mandato questo blocco da rigirare
         {update, Sender, Blocco} ->
-            % io:format("[~p, ~p]: Ho ricevuto l'update del blocco ~p~n",[self(),NameNode,Blocco]),
             PidB ! {updateLocal,Sender,Blocco},
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
 
@@ -139,8 +126,6 @@ loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) ->
         {get_head, Mittente, Nonce} ->
             % inoltro il messaggio a PidB
             PidB ! {get_head, Mittente,Nonce},
-            loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces);
-        {'EXIT',_,_} -> 
             loop(FriendsList, NameNode, PidT, PidB, PidC, Nonces)
     end.
 
@@ -157,22 +142,14 @@ addNodes(LengthFList,ListTemp) ->
 
 
 
-start(NameNode) -> 
-    Self = self(),
-    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
-    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
-    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
-    PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
-    loop([],NameNode, PidT, PidB, PidC, []).
 
-watchFriends(NewItems,Main) -> [spawn(fun()-> watch(Main,X) end) || X<-NewItems].
 
+% ------ TESTING CODE ----------
 sendT(Dest,Payload) ->
     Dest ! {push, {make_ref(), Payload}},
     io:format("> Send ~p to ~p~n",[Payload,Dest]).
-    
-test2() ->
-     io:format("Versione easy~n"),
+easy() ->
+     io:format("Easy Version~n"),
     TIME = 2,
     TIME_TO_TRANS = 3,
     spawn(teacher_node,main,[]), % teacher_node
@@ -264,9 +241,9 @@ test2() ->
     N7 ! {printC},
     io:format("FINITO~n").
 
-test() ->  
+hard() ->  
 
-    io:format("Versione hard~n"),
+    io:format("Hard Version~n"),
     TIME = 2,
     TIME_TO_TRANS = 3,
     spawn(teacher_node,main,[]), % teacher_node
