@@ -1,6 +1,8 @@
 -module(block_gossiping_act).
 -export([blockGossiping/4]).
 -import (utils , [sendMessage/2,sleep/1]).
+-import (chain_tools , [checkBlock/1]).
+
 
 %! behavior dell'attore che ha il compito di :
 %! - fare gossiping del Blocco ricevuto (chiedendo a PidRoot la lista di amici)
@@ -33,10 +35,14 @@ blockGossiping(PidRoot,PidB,PidRestore,Blocks) ->
     end.
 
 sendBlock(PidRoot,Blocco) ->
-        % chiedo gli amici a PidRoot
-        PidRoot ! {checkFriendsList, self()},
-        receive 
-            {myFriendsList, FriendsList} ->
-                % gossiping del nuovo blocco a nome di PidRoot
-                [ sendMessage( X , {update,PidRoot, Blocco}) || X <- FriendsList] 
-        end.
+    case checkBlock(Blocco) of
+        true ->
+            % chiedo gli amici a PidRoot
+            PidRoot ! {checkFriendsList, self()},
+            receive 
+                {myFriendsList, FriendsList} ->
+                    % gossiping del nuovo blocco a nome di PidRoot
+                    [ sendMessage( X , {update,PidRoot, Blocco}) || X <- FriendsList] 
+            end;
+        false -> invalid_block
+    end.

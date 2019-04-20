@@ -3,7 +3,7 @@
 -import (utils , [sendMessage/2,sleep/1]).
 
 
-%%%%%%%%  behavior dell'attore che controlla gli amici di PID %%%%%%%%
+%! -----  behavior dell'attore che controlla gli amici di PID ------
 start_C_act(PidRoot) -> 
     sleep(6),
     PidRoot ! {checkFriendsList,self()},
