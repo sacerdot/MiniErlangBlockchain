@@ -21,28 +21,24 @@
 
 %% gestisce le transazioni
 managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, TransactionsInBlocks) ->
-  io:format("~p ->+++++++ managerTransactions  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [self(), PoolTransactions, TransactionsInBlocks]),
+%%  io:format("~p ->+++++++ managerTransactions  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [self(), PoolTransactions, TransactionsInBlocks]),
   receive
     {push, Transaction} ->
       case lists:member(Transaction, PoolTransactions) or lists:member(Transaction, TransactionsInBlocks) of
         false ->
-%%          io:format("~p ->push Transaction ~p ~n", [PIDMain, Transaction]),
           PIDGossipingMessage ! {gossipingMessage, {push, Transaction}},%% ritrasmetto agli amici
           NewTransactions = PoolTransactions ++ [Transaction],
           managerTransactions(PIDMain, PIDGossipingMessage, NewTransactions, TransactionsInBlocks);
         true -> do_nothing
       end;
     {pop, Transactions} ->
-%%      io:format("~p -> pop ~n", [PIDMain]),
       managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions--Transactions, TransactionsInBlocks ++ Transactions);
 
     {updateTransactions, TransactionsToRemove, TransactionsToAdd} ->
-%%      io:format("~p -> updateTransactions ~n", [PIDMain]),
       managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions ++ TransactionsToAdd--TransactionsToRemove,
         TransactionsInBlocks--TransactionsToAdd ++ TransactionsToRemove);
 
     {getTransactionsToMine, PIDSender, Nonce} ->
-%%      io:format("~p -> getTransactionsToMine ~n", [PIDMain]),
       TransactionsChosen = case length(PoolTransactions) of
                              N when N > 10 -> getNRandomTransactions([], PoolTransactions, 10);
                              _ -> PoolTransactions
@@ -53,14 +49,12 @@ managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, Transactions
 
 
 initRebuildBlockChain(PIDManagerBlock, PIDManagerFriends, PIDMining, NewBlock, Sender) ->
-  io:format("~p -> initRebuildBlockChain NewBlock ----> ~p ~n", [PIDManagerBlock, NewBlock]),
   TempNonceF = make_ref(),
   PIDManagerFriends ! {get_friends, self(), TempNonceF},
   receive
     {friends, TempNonceF, Friends} ->
       FriendsPlusSender = case Sender of
                             PIDManagerBlock -> Friends;
-                            PIDMining -> Friends; %%???????non so se serve rivedere
                             _ -> Friends ++ [Sender]
                           end,
       rebuildBlockChain(PIDManagerBlock, [NewBlock], FriendsPlusSender, 0)
@@ -69,10 +63,10 @@ initRebuildBlockChain(PIDManagerBlock, PIDManagerFriends, PIDMining, NewBlock, S
 
 %% InitIndex è necessario per cambiare amico a cui chiedere il precedente se quello con cui stiamo comunicando non risonde più perchè morto o perchè non ha il blocco
 rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, InitIndex) ->
-  io:format("~p -> rebuildBlockChain NewBlockChain ---------> ~p ~n", [PIDManagerBlock, NewBlockChain]),
   TempNonceF = make_ref(),
-  Index = case InitIndex of %%corrisponde a modulo 4 + 1
-            4 -> 1;
+  TempLength = length(FriendsPlusSender),
+  Index = case InitIndex of %%corrisponde a modulo TempLength + 1
+            TempLength -> 1;
             _ -> InitIndex + 1
           end,
   lists:nth(Index, FriendsPlusSender) ! {get_previous, self(), TempNonceF, element(2, lists:nth(1, NewBlockChain))},
@@ -80,7 +74,7 @@ rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, InitIndex) 
     {previous, TempNonceF, BlockPrevious} ->
       TempNewBlockChain = [BlockPrevious] ++ NewBlockChain,
       TempNonceB = make_ref(),
-      PIDManagerBlock ! {isBlockOfBlockChain, TempNewBlockChain, self(), TempNonceB},
+      PIDManagerBlock ! {isForkPoint, TempNewBlockChain, self(), TempNonceB},
       receive
         {not_found, TempNonceB} -> rebuildBlockChain(PIDManagerBlock, TempNewBlockChain, FriendsPlusSender, Index - 1);
         {stopRebuild, TempNonceB} -> do_nothing
@@ -96,86 +90,71 @@ initManagerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransact
 managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain) ->
   process_flag(trap_exit, true),
   MyPid = self(),
-  case BlockChain of %%todo eliminare dopo test
-    [_ | _] ->
-      io:format("~p ->MANAGER_BLOCK: ~p length: ~p Head: ~p !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!~n", [PIDMain, MyPid, length(BlockChain), lists:nth(length(BlockChain), BlockChain)]);
-    _ -> do_nothing
-  end,
+  io:format("~p ->MANAGER_BLOCK: ~p length: ~p BlockChain: ~p~n !!!!!!!!!!!!!!!!!!!!!!!~n", [PIDMain, MyPid, length(BlockChain), BlockChain]),
   receive
     {update, Sender, {IDBlock, IDPreviousBlock, BlockTransactions, Solution}} ->
-      io:format("~p-> Receive update ~n", [PIDMain]),
       case BlockTransactions of
         [] -> do_nothing;
         _ ->
           Block = {IDBlock, IDPreviousBlock, BlockTransactions, Solution},
           case Sender of
-            PIDMining -> case equalsPrevious(IDPreviousBlock, BlockChain) of
-                           true ->
-                             io:format("--------------------> Blocco minato da :::~p::: IDBlock->~p ~n", [PIDMain, IDBlock]),
-                             PIDManagerTransactions ! {pop, BlockTransactions},
-                             PIDGossipingMessage ! {gossipingMessage, {update, PIDMain, Block}},
-%%                             NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
-                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain ++ [Block]);
-                           false ->
-                             io:format("--------------------> Blocco minato da :::~p::: IDBlock->~p MA SCARTATO~n", [PIDMain, Block]),
-%%                             NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
-                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain)
-                         end;
-            _ ->
-              case checkBlockUpdate(Block, BlockChain) of
-                true -> io:format("~p -> checkBlockUpdate ------->>>>> TRUE ~n", [PIDMain]),
+            PIDMining -> %% controllo che l'id della testa di BlockChain è uguale a IDPreviousBlock
+              case equalsPrevious(IDPreviousBlock, BlockChain) of
+                false ->
+                  do_nothing;
+                true ->
                   case checkTransactionsToBlockChain(BlockTransactions, BlockChain) of
+                    true ->
+                      PIDManagerTransactions ! {pop, BlockTransactions},
+                      PIDGossipingMessage ! {gossipingMessage, {update, PIDMain, Block}},
+                      managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain ++ [Block]);
                     false ->
-                      %% non effettuo il gossiping, nel caso accetto la catena ricostruita farò il gossiping della testa
-                      io:format("~p -> checkTransactionsToBlockChain --> FALSE ---", [PIDMain]),
-                      %% se IDPreviousBlock è none e la BlockChain /= [] non accetto il blocco mentre
-                      %% se IDPreviousBlock è none e la BlockChain == [] non entrerà mai in questo ramo negli altri casi dovrà
+                      do_nothing
+                  end
+              end;
+            _ ->
+              %% NON accetta un blocco se lo conosco, se non passa il proof_of_work:check e se [IDPreviousBlock == none && la BlockChain /= []]
+              case checkBlockUpdate(Block, BlockChain) of
+                true ->
+                  case checkTransactionsToBlockChain(BlockTransactions, BlockChain) of
+                    false ->%% non effettuo il gossiping, nel caso accetto la catena ricostruita farò il gossiping della testa
                       %% controllo che l'id della testa di BlockChain è uguale a IDPreviousBlock
                       case equalsPrevious(IDPreviousBlock, BlockChain) of
-                        true -> io:format("equalsPrevious---> TRUE  ~n"),
-                          %% vuol dire che si attacca alla testa della mia BlockChain ma contiene transazioni già presenti in altri blocchi
+                        true ->%% vuol dire che si attacca alla testa della mia BlockChain ma contiene transazioni già presenti in altri blocchi
                           do_nothing;
-                        false -> io:format("equalsPrevious---> FALSE  ~n"),
-                          %%ricostruzione della catena (chiedendo al Sender o agli amici)
-                          io:format("/////////////////////////////////~p -> Case prev. NO none and IDPreviousBlock!!!!= head->BlockChain ~n", [PIDMain]),
+                        false -> %%ricostruzione della catena (chiedendo al Sender o agli amici)
                           spawn_link(blockChain, initRebuildBlockChain, [MyPid, PIDManagerFriends, PIDMining, Block, Sender])
                       end;
                     true ->
-                      case Sender of
-                        MyPid -> do_nothing; %% solo caso che mi ritrasmetto la testa della
+                      case Sender of %% effettuo il gossiping
+                        MyPid -> do_nothing; %% solo caso che mi ritrasmetto la testa da me stesso
                         _ ->
                           PIDGossipingMessage ! {gossipingMessage, {update, PIDMain, Block}} %% ritrasmetto agli amici
                       end,
                       case IDPreviousBlock of
-                        none ->%%when BlockChain =:= []
-                          io:format("~p -> Case prev. NONE and BlockChain=:= [] ~n", [PIDMain]),
+                        none ->%% se IDPreviousBlock == none && la BlockChain /= [] scarto il blocco in checkBlockUpdate
                           PIDManagerTransactions ! {pop, BlockTransactions},
                           exit(PIDMining, kill),
-%%                          NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
                           managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, [Block]);
-                        _ ->
-                          case equalsPrevious(IDPreviousBlock, BlockChain) of %% controllo che l'id della testa di BlockChain è uguale a IDPreviousBlock
+                        _ ->%% controllo che l'id della testa di BlockChain è uguale a IDPreviousBlock
+                          case equalsPrevious(IDPreviousBlock, BlockChain) of
                             true ->
-                              io:format("~p -> Case prev. no none and IDPreviousBlock== head->BlockChain ~n", [PIDMain]),
                               PIDManagerTransactions ! {pop, BlockTransactions},
                               exit(PIDMining, kill),
-%%                              NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
                               managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain ++ [Block]);
                             false -> %%ricostruzione della catena (chiedendo al Sender o agli amici)
-                              io:format("/////////////////////////////////~p -> Case prev. no none and IDPreviousBlock!!!!= head->BlockChain ~n", [PIDMain]),
                               spawn_link(blockChain, initRebuildBlockChain, [MyPid, PIDManagerFriends, PIDMining, Block, Sender])
                           end
                       end
                   end;
                 false ->
-                  io:format("~p -> checkBlockUpdate ------->>>>> FALSE ~n", [PIDMain]),
                   do_nothing
               end
           end
       end;
 
     {get_previous, Sender, Nonce, IdBlockPrevious} ->
-      case indexOfBlockToBlockChain(IdBlockPrevious, BlockChain) of
+      case indexOfBlock(IdBlockPrevious, BlockChain) of
         not_found -> do_nothing;
         N -> Sender ! {previous, Nonce, lists:nth(N, BlockChain)}
       end;
@@ -200,13 +179,14 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
       after 5000 -> MyPid ! {head, Nonce, Block}
       end;
 
+%%    todo gestione transazioni duplicate blockchain
     {isForkPoint, NewPartBlockChain, Sender, Nonce} ->
       IdPrevious = element(2, lists:nth(1, NewPartBlockChain)),
       NewBlockChain = case IdPrevious of
                         none ->%% trovato punto di fork quindi controlla quale catena è più lunga
                           Sender ! {stopRebuild, Nonce},
                           establishLongestChain(PIDManagerTransactions, BlockChain, NewPartBlockChain, 0);
-                        _ -> case indexOfBlockToBlockChain({IdPrevious, none, none, none}, BlockChain) of
+                        _ -> case indexOfBlock(IdPrevious, BlockChain) of
                                not_found ->
                                  Sender ! {not_found, Nonce},
                                  BlockChain;
@@ -221,30 +201,27 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
         _ ->
           PIDGossipingMessage ! {gossipingMessage, {update, PIDMain, lists:nth(length(NewBlockChain), NewBlockChain)}}, %% gossiping della testa agli amici
           exit(PIDMining, kill),
-%%          NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
           managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, NewBlockChain)
       end;
-    {'EXIT', Pid, Reason} ->
-      io:format("Kill ~p Reason ~p~n", [Pid, Reason]),
+    {'EXIT', Pid, _} ->
       case Pid of
         PIDMining ->
           NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
           managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, BlockChain);
-        _-> do_nothing
+        _ -> do_nothing
       end
   end,
   managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain).
 
-%% NON accetta un blocco se lo conosco, se non passa il proof_of_work:check e se [IDPreviousBlock == none && la BlockChain == []]
+%% NON accetta un blocco se lo conosco, se non passa il proof_of_work:check e se [IDPreviousBlock == none && la BlockChain /= []]
 checkBlockUpdate({IDBlock, IDPreviousBlock, BlockTransactions, Solution}, BlockChain) ->
-  case indexOfBlockToBlockChain(IDBlock, BlockChain) of
+  case indexOfBlock(IDBlock, BlockChain) of
     not_found ->
       case proof_of_work:check({IDPreviousBlock, BlockTransactions}, Solution) of
         false -> false;
         true ->
           case IDPreviousBlock of
             none when BlockChain /= [] ->
-              io:format("~p -> Case prev. NONE do_nothing~n", [self()]),
               false;
             _ -> true
           end
@@ -254,12 +231,11 @@ checkBlockUpdate({IDBlock, IDPreviousBlock, BlockTransactions, Solution}, BlockC
 
 %% ritorna la catena più lunga, aggiunge le transazioni della catena scartata e rimuove le transazioni della nuova catena dalla pool transazioni
 establishLongestChain(ManagerTransaction, BlockChain, NewBlockChain, PointFork) ->
-  LengthBC = lists:length(BlockChain),
-  LengthNewBC = lists:length(NewBlockChain),
+  LengthBC = length(BlockChain),
+  LengthNewBC = length(NewBlockChain),
   if
     LengthNewBC > LengthBC ->
       TransactionsToRemovePool = extractTransaction(lists:sublist(NewBlockChain, PointFork + 1, LengthNewBC - PointFork)),
-
       %% Controlla che le TransactionsToRemovePool, ovvero le transazioni della parte nuova della blockChain non siano contenute nella parte vecchia
       case checkTransactionsToBlockChain(TransactionsToRemovePool, lists:sublist(NewBlockChain, 1, PointFork)) of
         false -> BlockChain;
@@ -277,52 +253,48 @@ extractTransaction([H | T], Transactions) ->
   NewTransactions = Transactions ++ element(3, H),
   extractTransaction(T, NewTransactions).
 
-indexOfBlockToBlockChain(Item, List) -> indexOfBlockToBlockChain(Item, List, 1).
-indexOfBlockToBlockChain(_, [], _) -> not_found;
-indexOfBlockToBlockChain(Item, [{Item, _, _, _} | _], Index) -> Index;
-indexOfBlockToBlockChain(Item, [_ | Tl], Index) -> indexOfBlockToBlockChain(Item, Tl, Index + 1).
+indexOfBlock(IdBlockPrevious, List) -> indexOfBlock(IdBlockPrevious, List, 1).
+indexOfBlock(_, [], _) -> not_found;
+indexOfBlock(IdBlockPrevious, [{IdBlockPrevious, _, _, _} | _], Index) -> Index;
+indexOfBlock(IdBlockPrevious, [_ | Tl], Index) -> indexOfBlock(IdBlockPrevious, Tl, Index + 1).
 
 equalsPrevious(none, []) -> true;
+equalsPrevious(_, []) -> false;
 equalsPrevious(Item, BlockChain) -> equalsPrevious(check, Item, lists:nth(length(BlockChain), BlockChain)).
 equalsPrevious(check, Item, {Item, _, _, _}) -> true;
 equalsPrevious(check, _, _) -> false.
 
 mining(PIDManagerTransactions, PIDManagerBlocks) ->
-  nodeFP:sleep(rand:uniform(5)),%%todo rand time for test
+  nodeFP:sleep(rand:uniform(5)),%%todo rand time only for test
   MyPid = self(),
-  io:format("PID_block ~p PidMining ~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks, self()]),
+%%  io:format("PID_block ~p PidMining ~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks, self()]),
   Nonce = make_ref(),
   PIDManagerTransactions ! {getTransactionsToMine, MyPid, Nonce},
   receive
     {transactionsToMine, Nonce, TransactionsToMine} ->
       case TransactionsToMine of
         [] ->
-%%          io:format("~p ->STOP--------------------------------------- ~n", [PIDManagerBlocks]),
-          nodeFP:sleep(rand:uniform(5)), %%todo rand time for test
+          nodeFP:sleep(3),
           mining(PIDManagerTransactions, PIDManagerBlocks);
         _ ->
           Nonce2 = make_ref(),
           PIDManagerBlocks ! {get_head, MyPid, Nonce2},
           receive
             {head, Nonce2, Block} ->
-%%              io:format("~p ->CONTINUE head----------------------~p ----------------- ~n", [PIDManagerBlocks, {head, Nonce2, Block}]),
               IDPreviousBlock = case Block of
                                   none -> none;
                                   _ -> element(1, Block)
                                 end,
               Solution = proof_of_work:solve({IDPreviousBlock, TransactionsToMine}),
               PIDManagerBlocks ! {update, MyPid, {make_ref(), IDPreviousBlock, TransactionsToMine, Solution}}
-%%              ,io:format("~p ->CONTINUE SEND++++----------------------~p ----------------- ~n", [PIDManagerBlocks, {make_ref(), IDPreviousBlock, TransactionsToMine, Solution}])
           end
       end
   end.
 
 managerHead(MainPID) ->
   receive
-    {pong, Sender, TeacherPID} when Sender /= TeacherPID ->
-      do_nothing
-  after 60000 ->
-    MainPID ! {maybeNoFollowers}
+    {follower} -> do_nothing
+  after 60000 -> MainPID ! {maybeNoFollowers}
   end,
   managerHead(MainPID).
 
@@ -338,20 +310,21 @@ getNRandomTransactions(TransactionsChosen, PoolTransactions, N) ->
       end
   end.
 
-%%Controlla che nessuna delle transazioni sia contenuta nella BlockChain rispondendo true se è non sono contenute false altrimenti
+%%Controlla che nessuna delle transazioni sia contenuta nella BlockChain rispondendo true se non sono contenute false altrimenti
 checkTransactionsToBlockChain(_, []) -> true;
 checkTransactionsToBlockChain(Transactions, [H | T]) ->
-  case checkTransactionsToTransactions(Transactions, element(3, H)) of
+  case checkListsOfTransactions(Transactions, element(3, H)) of
     true -> checkTransactionsToBlockChain(Transactions, T);
     false -> false
   end.
-checkTransactionsToTransactions([], _) -> true;
-checkTransactionsToTransactions([H | T], BlockTransactions) ->
-  case indexOfTransactionToTransactions(H, BlockTransactions) of
-    not_found -> checkTransactionsToTransactions(T, BlockTransactions);
+%% funzioni ausiliare per checkTransactionsToBlockChain
+checkListsOfTransactions([], _) -> true;
+checkListsOfTransactions([H | T], BlockTransactions) ->
+  case indexOfTransaction(H, BlockTransactions) of
+    not_found -> checkListsOfTransactions(T, BlockTransactions);
     _ -> false
   end.
-indexOfTransactionToTransactions(Item, List) -> indexOfTransactionToTransactions(Item, List, 1).
-indexOfTransactionToTransactions(_, [], _) -> not_found;
-indexOfTransactionToTransactions(Item, [Item | _], Index) -> Index;
-indexOfTransactionToTransactions(Item, [_ | Tl], Index) -> indexOfTransactionToTransactions(Item, Tl, Index + 1).
+indexOfTransaction(Transaction, ListTransaction) -> indexOfTransaction(Transaction, ListTransaction, 1).
+indexOfTransaction(_, [], _) -> not_found;
+indexOfTransaction(Transaction, [Transaction | _], Index) -> Index;
+indexOfTransaction(Transaction, [_ | Tl], Index) -> indexOfTransaction(Transaction, Tl, Index + 1).
