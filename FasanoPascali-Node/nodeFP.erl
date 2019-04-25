@@ -13,8 +13,6 @@
 
 sleep(N) -> receive after N * 1000 -> ok end.
 
-%% todo testare perdita di messaggi e arrivo di messaggi doppi
-%% todo integrare perdita di messaggi e invio di messaggi doppi
 
 init() ->
   PID = self(),
@@ -44,6 +42,9 @@ loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
   loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID).
 
 loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID) ->
+  process_flag(trap_exit, true),
+
+  io:format("~p -> -------------------------StartMAIn----------------------------- ~n", [self()]),
   receive
     {friends, Nonce, FriendsOfFriend} ->
       PIDManagerFriends ! {friends, Nonce, FriendsOfFriend};
@@ -72,34 +73,11 @@ loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
       io:format("~p -> +++++++++++++++++++++++++++++NoFollowers----------------------------- ~n", [self()]),
       TempNonce = make_ref(),
       PIDManagerNonce ! {updateNonce, TempNonce},
-      PIDManagerFriends ! {sendMessageRandFriend, {get_head, PIDManagerBlock, TempNonce}}
+      PIDManagerFriends ! {sendMessageRandFriend, {get_head, PIDManagerBlock, TempNonce}};
+
+    {'EXIT', Pid, Reason} ->
+      io:format("Kill ~p Reason ~p~n", [Pid, Reason]),
+      spawn(nodeFP, init, []),
+      exit(self(), kill)
   end,
   loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID).
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

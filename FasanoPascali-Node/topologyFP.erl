@@ -62,7 +62,7 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
         {nonce, false, TempNonce} -> do_nothing;
         {nonce, ok, TempNonce} ->
           NewFriends = extractNewFriends(FriendsOfFriend, Friends ++ [PIDMain], Friends),
-          [spawn(fun() -> watch(MyPid, X) end) || X <- NewFriends],
+          [spawn_link(fun() -> watch(MyPid, X) end) || X <- NewFriends],
           NewTotalFriends = Friends ++ NewFriends,
           PIDGossipingMessage ! {updateFriends, NewTotalFriends},
           if
@@ -84,11 +84,12 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
 
     {get_friends, Sender, Nonce} ->
 %%      io:format("~p -> get_friends from node ~p~n", [PIDMain, Sender]),
-      Sender ! {friends, Nonce, Friends};
+      sendMaybeWrongMessages(Sender,  {friends, Nonce, Friends}, false);%%todo true
 
     {sendMessageRandFriend, Message} ->
       R = rand:uniform(length(Friends)),
       lists:nth(R, Friends) ! Message
+  after 30000 -> wait_no_more
   end,
   case length(Friends) of
     3 -> newFriendsRequest(PIDMain, Friends, 0, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage);
@@ -107,7 +108,7 @@ gossipingMessage(Friends) ->
   gossipingMessage(Friends).
 gossipingMessage([], _) -> ok;
 gossipingMessage([H | T], Message) ->
-  H ! Message,
+  sendMaybeWrongMessages(H, Message, false),%%todo true
   gossipingMessage(T, Message).
 
 %% InitFriends è stato inserito per evitare di spawn nodi monitor già esistenti e quindi far ritornare solo i nuovi amici
@@ -142,7 +143,7 @@ flushMailBox() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-
+%% IsErrorActivated is used only for test reasons
 sendMaybeWrongMessages(PidRecevier, Message, IsErrorActivated) ->
   if
     IsErrorActivated == false ->

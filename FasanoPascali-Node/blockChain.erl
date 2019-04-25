@@ -21,7 +21,7 @@
 
 %% gestisce le transazioni
 managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, TransactionsInBlocks) ->
-  io:format("~p ->+++++++ managerTransactions  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [PIDMain, PoolTransactions, TransactionsInBlocks]),
+  io:format("~p ->+++++++ managerTransactions  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [self(), PoolTransactions, TransactionsInBlocks]),
   receive
     {push, Transaction} ->
       case lists:member(Transaction, PoolTransactions) or lists:member(Transaction, TransactionsInBlocks) of
@@ -88,16 +88,15 @@ rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, InitIndex) 
   after 10000 -> rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, Index)
   end.
 
-%% todo il mining non riparte dopo ricostruzione catena
-
 %% gestisce i blocchi
 initManagerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage) ->
-  PIDMining = spawn(blockChain, mining, [PIDManagerTransactions, self()]),
+  PIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, self()]),
   managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, []).
 
 managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain) ->
+  process_flag(trap_exit, true),
   MyPid = self(),
-  case BlockChain of
+  case BlockChain of %%todo eliminare dopo test
     [_ | _] ->
       io:format("~p ->MANAGER_BLOCK: ~p length: ~p Head: ~p !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!~n", [PIDMain, MyPid, length(BlockChain), lists:nth(length(BlockChain), BlockChain)]);
     _ -> do_nothing
@@ -115,12 +114,12 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
                              io:format("--------------------> Blocco minato da :::~p::: IDBlock->~p ~n", [PIDMain, IDBlock]),
                              PIDManagerTransactions ! {pop, BlockTransactions},
                              PIDGossipingMessage ! {gossipingMessage, {update, PIDMain, Block}},
-                             NewPIDMining = spawn(blockChain, mining, [PIDManagerTransactions, MyPid]),
-                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, BlockChain ++ [Block]);
+%%                             NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
+                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain ++ [Block]);
                            false ->
                              io:format("--------------------> Blocco minato da :::~p::: IDBlock->~p MA SCARTATO~n", [PIDMain, Block]),
-                             NewPIDMining = spawn(blockChain, mining, [PIDManagerTransactions, MyPid]),
-                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, BlockChain)
+%%                             NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
+                             managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain)
                          end;
             _ ->
               case checkBlockUpdate(Block, BlockChain) of
@@ -152,16 +151,16 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
                           io:format("~p -> Case prev. NONE and BlockChain=:= [] ~n", [PIDMain]),
                           PIDManagerTransactions ! {pop, BlockTransactions},
                           exit(PIDMining, kill),
-                          NewPIDMining = spawn(blockChain, mining, [PIDManagerTransactions, MyPid]),
-                          managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, [Block]);
+%%                          NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
+                          managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, [Block]);
                         _ ->
                           case equalsPrevious(IDPreviousBlock, BlockChain) of %% controllo che l'id della testa di BlockChain è uguale a IDPreviousBlock
                             true ->
                               io:format("~p -> Case prev. no none and IDPreviousBlock== head->BlockChain ~n", [PIDMain]),
                               PIDManagerTransactions ! {pop, BlockTransactions},
                               exit(PIDMining, kill),
-                              NewPIDMining = spawn(blockChain, mining, [PIDManagerTransactions, MyPid]),
-                              managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, BlockChain ++ [Block]);
+%%                              NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
+                              managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain ++ [Block]);
                             false -> %%ricostruzione della catena (chiedendo al Sender o agli amici)
                               io:format("/////////////////////////////////~p -> Case prev. no none and IDPreviousBlock!!!!= head->BlockChain ~n", [PIDMain]),
                               spawn_link(blockChain, initRebuildBlockChain, [MyPid, PIDManagerFriends, PIDMining, Block, Sender])
@@ -222,8 +221,16 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
         _ ->
           PIDGossipingMessage ! {gossipingMessage, {update, PIDMain, lists:nth(length(NewBlockChain), NewBlockChain)}}, %% gossiping della testa agli amici
           exit(PIDMining, kill),
-          NewPIDMining = spawn(blockChain, mining, [PIDManagerTransactions, MyPid]),
-          managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, NewBlockChain)
+%%          NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
+          managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, NewBlockChain)
+      end;
+    {'EXIT', Pid, Reason} ->
+      io:format("Kill ~p Reason ~p~n", [Pid, Reason]),
+      case Pid of
+        PIDMining ->
+          NewPIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, MyPid]),
+          managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, NewPIDMining, BlockChain);
+        _-> do_nothing
       end
   end,
   managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain).
@@ -283,7 +290,7 @@ equalsPrevious(check, _, _) -> false.
 mining(PIDManagerTransactions, PIDManagerBlocks) ->
   nodeFP:sleep(rand:uniform(5)),%%todo rand time for test
   MyPid = self(),
-  io:format("~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks]),
+  io:format("PID_block ~p PidMining ~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks, self()]),
   Nonce = make_ref(),
   PIDManagerTransactions ! {getTransactionsToMine, MyPid, Nonce},
   receive
@@ -348,4 +355,3 @@ indexOfTransactionToTransactions(Item, List) -> indexOfTransactionToTransactions
 indexOfTransactionToTransactions(_, [], _) -> not_found;
 indexOfTransactionToTransactions(Item, [Item | _], Index) -> Index;
 indexOfTransactionToTransactions(Item, [_ | Tl], Index) -> indexOfTransactionToTransactions(Item, Tl, Index + 1).
-

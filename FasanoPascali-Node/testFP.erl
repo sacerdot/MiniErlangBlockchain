@@ -26,16 +26,16 @@ test1() ->
   compileModule(),
   TempPid1 = spawn(nodeFP, init, []),
   sendTransaction(TempPid1, pid1__transazione1),
-  nodeFP:sleep(15),
-  sendTransaction(TempPid1, pid1__transazione2),
-  nodeFP:sleep(15),
-  sendTransaction(TempPid1, pid1__transazione3),
-  nodeFP:sleep(15),
-  sendTransaction(TempPid1, pid1__transazione4),
-  nodeFP:sleep(15),
-  sendTransaction(TempPid1, pid1__transazione5),
-  nodeFP:sleep(15),
-  sendTransaction(TempPid1, pid1__transazione6),
+%%  nodeFP:sleep(15),
+%%  sendTransaction(TempPid1, pid1__transazione2),
+%%  nodeFP:sleep(15),
+%%  sendTransaction(TempPid1, pid1__transazione3),
+%%  nodeFP:sleep(15),
+%%  sendTransaction(TempPid1, pid1__transazione4),
+%%  nodeFP:sleep(15),
+%%  sendTransaction(TempPid1, pid1__transazione5),
+%%  nodeFP:sleep(15),
+%%  sendTransaction(TempPid1, pid1__transazione6),
   sendTransaction(TempPid1, pid1__transazione6END).
 
 spawn5() ->
@@ -190,7 +190,7 @@ stressfulTestLoop() ->
 %% testFP:testBlockANDtransactionDouble().
 
 %% testFP:sendTransaction(<0.130.0>, ciao111111333333311).
-%% exit(<0.82.0>, kill).
+%% exit(<0.85.0>, kill).
 %% spawn(nodeFP, init, []).
 
 %% testFP:test1().
@@ -201,15 +201,15 @@ stressfulTestLoop() ->
 %% topologia amici testata e funzionante
 %% gossiping testato e funzionante
 %% mining blocco
-%%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% todo testare:
-%% +- update della visione della catena todo loop-t se non accetto ma effettuo gossip
-%% algoritmo di ricostruzione della catena sembra funzionare ma non testato direttamente
-%% se non ricevo blocchi per X tempo chiedo la testa todo non ancora integrato
+%% update della visione della catena
 %% transazioni ripetute nei blocchi
 %%
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% todo testare:
+%% algoritmo di ricostruzione della catena sembra funzionare ma non testato direttamente
+%% NoFollowers per X tempo chiedo la testa todo non ancora integrato bene
+%% testare perdita di messaggi e arrivo di messaggi doppi
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% todo:  Quando  ricevo un blocco che non conosco creo un loop (effettuando il gossiping) finchè qualcuno non mina
