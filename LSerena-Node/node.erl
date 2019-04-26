@@ -1,5 +1,6 @@
 -module(node).
 -export([main/0]).
+-export([makeT/1]).
 -record(transaction, {idTransaction, payload}).
 -record(block, {idBlock, idPreviousBlock, transactions, solution}).
 -record(head_of_blocks, {head_blockID, leng}).
@@ -7,10 +8,8 @@
 sleep(N) -> receive after N*1000 -> ok end.
 
 watch(Main,Node) ->
-  io:format ("watching .. ~n"),
   sleep(10),
   Ref = make_ref(),
-%  nodeLS ! {add_nonce, Ref},
   Node ! {ping, self(), Ref},
   receive
     {pong, Ref} -> watch(Main,Node)
@@ -27,10 +26,10 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
        loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     {friends, Nonce, New_Nodes} ->
-        io:format("nodes-received  ~p~p~n",[length(Nodes), length(New_Nodes)]),
+      %  io:format("nodes-received  ~p~p~n",[length(Nodes), length(New_Nodes)]),
         New_Nonces = Nonces,
         case lists:member(Nonce, Nonces) of
-       	    true -> Friends = addNode ([Nodes], New_Nodes),
+       	    true -> Friends = addNode (Nodes, New_Nodes),
        	              loop(Friends, TransactionsList, Blocks, Heads, New_Nonces);
             false -> io:format("Nonce not found ~n"),
                      loop(Nodes, TransactionsList, Blocks, Heads, New_Nonces)
@@ -42,20 +41,17 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
 
     {get_friends, Sender, Nonce} ->
         Sender ! {friends, Nonce, Nodes},
-        %spawn(fun () -> research(Nodes, self()) end),
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     {push, NewTransaction} ->
     	NewTransactionsList = case lists:member(NewTransaction, TransactionsList) of
     		true ->
-    		    io:format("Already known transaction ~p~n",[NewTransaction]),
     	        TransactionsList;
-    	    false ->
-    	        lists:foreach(fun(N) ->
-                    N ! {push, NewTransaction}
-                    end, Nodes),
-    	        [NewTransaction | TransactionsList]
-    	         end,
+    	    false ->  io:format ("leng ~p~p~n", [length(Nodes), Nodes]),
+    	              add_transaction(NewTransaction, Nodes),
+    	             io:format ("NewTransaction~n"),
+    	             [NewTransaction | TransactionsList]
+    	    end,
     	loop(Nodes, NewTransactionsList, Blocks, Heads, Nonces);
 
     {update,  NewBlock} ->    %still need to delete transactions in the block
@@ -125,7 +121,6 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
                  	          true ->is_first
             	          end,
             	          Blocks = [NewBlock | Blocks]
-                    %loop (Nodes, TransactionsList, [NewBlock|Blocks], Heads, Nonces)
               end
         end,
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
@@ -144,7 +139,6 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
          loop(Nodes, TransactionsList, Blocks, Heads, [Nonce | Nonces]);
 
     {ask_friend} ->
-        io:format("Ask.fm ~p~n", [length(Nodes)]),
         Sel = self(),
         spawn(fun () -> research(Nodes, Sel) end),
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
@@ -181,6 +175,12 @@ findBlockGivenId ([Block|Tail], Id) ->
      	          false -> findBlockGivenId(Tail, Id)
      	end
     end.
+
+add_transaction (Trans, []) -> ok;
+
+add_transaction (Trans, [H|T]) ->
+    H ! {push, Trans},
+    add_transaction (Trans, T).
 
 addNode(Nodes, []) ->  Nodes;
 
@@ -228,7 +228,7 @@ randomFriend (Nodes) ->
 
 research (Nodes, Self)  ->
     sleep (3),
-    io:format("numero nodi ~p~n",[length(Nodes)]),
+  %  io:format("numero nodi ~p~n",[length(Nodes)]),
     NUM = length(Nodes) + 1,
     RDM = rand:uniform(NUM),
     case length (Nodes) of
@@ -236,15 +236,20 @@ research (Nodes, Self)  ->
        	 Y -> 
        	        Ref = make_ref(),
        	        nodeLS ! {add_nonce, Ref},
-       	        %case RDM of 
-       	           %	 NUM -> 
-       	           	      {teacher_node, teacher@localhost} ! {get_friends, Self, Ref}
-       	          % 	 X   -> 
-       	           %       lists:nth (RDM, Nodes) ! {get_friends, Self, Ref}                   
-       	  %      end
+       	        case RDM of 
+       	           	 NUM -> 
+       	           	      {teacher_node, teacher@localhost} ! {get_friends, Self, Ref};
+       	           	 X   -> 
+       	                 lists:nth (RDM, Nodes) ! {get_friends, Self, Ref}                   
+       	        end
     end,
     nodeLS ! {ask_friend}.
 
+makeT (Payload) -> 
+       NewT = #transaction{idTransaction = make_ref(), payload = Payload},
+       nodeLS ! {push, NewT}.
+
+       
 
 main() ->
     Self = self(),
@@ -253,4 +258,4 @@ main() ->
     Ref = make_ref(),
     {teacher_node, teacher@localhost} ! {get_friends, self(), Ref},
     loop([],[],[],[], [Ref]).
-
+    %spawn (fun() -> node:main() end).
