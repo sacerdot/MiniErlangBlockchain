@@ -7,8 +7,10 @@
 % TODO: Maintain a friends list of exactly 3 nodes
 % TODO: Ask all friends for more friends before reasking the teacher
 
--define(TEACHERNODE, teacher_node@librem).
--define(DEAD_TOLERANZ, 1).
+-define(TEACHER_NODE, {teacher_node, teacher_node@librem}).
+-define(DEAD_TOLERANZ, 0).
+%Timeout for request in seconds
+-define(TIMEOUT, 2).
 
 msg_anomaly(Sender, Msg) ->
   X = rand:uniform(10),
@@ -23,141 +25,151 @@ sleep(N) ->
   end.
 
 watch(Main, Node) -> spawn(fun () -> watch(Main, Node, ?DEAD_TOLERANZ) end).
+% We need to sleep after checking so we check impideatly new nodes
 watch(Main, Node, Toleranz) ->
-  sleep(10),
   Ref = make_ref(),
   Node ! {ping, self(), Ref},
   receive
-    {pong, Ref} -> watch(Main, Node, ?DEAD_TOLERANZ)
+    {pong, Ref} -> sleep(10), watch(Main, Node, ?DEAD_TOLERANZ)
   after 2000 ->
           case Toleranz =< 0 of
             true ->  Main ! {dead, Node};
-            false -> watch(Main, Node, Toleranz - 1)
+            false -> sleep(10), watch(Main, Node, Toleranz - 1)
           end
   end.
 
-% This removes Nonces after a timeout of 2 secounds
-nonces_cleaner(Main, Nonces) ->
-  spawn(fun () ->
-            sleep(2),
-            Main ! {remove_nonce, Nonces}
-        end),
-  Nonces.
+% Request friends (get_friends)
+get_friends(Main, Dest) ->
+  Nonce = make_ref(),
+  Dest ! {get_friends, Main, Nonce},
+  io:format("Sent get_friends to ~p with Nonce ~p~n", [Dest, {friends, Nonce}]),
+  {friends, Nonce}.
 
-ask_with_delay(Main, Teacher) ->
+% Request previous Block (get_previous)
+% Keep track of the Nonce and remake the request when no reply within ?TIMEOUT
+get_previous(Main, Dest, Block_id) ->
   spawn(fun () ->
-            sleep(10),
-            Main ! {request_friends, Teacher}
+            Nonce = make_ref(),
+            msg_anomaly(Dest, {get_previous, self(), Nonce, Block_id}),
+            receive
+              {previous, Nonce, Block} -> Main ! {add_previous, Block}
+            after ?TIMEOUT * 1000 -> Main ! {failed, get_previous, Block_id}
+            end
         end).
 
-check_friends_list(Nodes, Nonces) ->
-  % we use a nonce to block future requests
-  case lists:member({int_friends, 1}, Nonces) of
-    false ->
-      if
-        length(Nodes) == 0 ->
-          ask_with_delay(self(), true),
-          {int_friends, 1};
-        length(Nodes) < 3 ->
-          ask_with_delay(self(), false),
-          {int_friends, 1};
-        true -> []
-      end;
-    true -> []
+% Request chain Head (get_head)
+% Keep track of the Nonce and remake the request when no reply within ?TIMEOUT
+get_head(Main, Dest) ->
+  spawn(fun () ->
+            Nonce = make_ref(),
+            msg_anomaly(Dest, {get_head, self(), Nonce}),
+            receive
+              {head, Nonce, Block} -> Main ! {add_head, Block}
+            after ?TIMEOUT * 1000 -> Main ! {failed, get_head}
+            end
+        end).
+
+% Send update (update)
+% We don't need to track this message
+update(Main, Dest, Block) ->
+  Dest ! {update, Main, Block}.
+
+% Send push (update)
+% We don't need to track this message
+push(Dest, Transaction) ->
+  Dest ! {push, Transaction}.
+
+friends_loop() ->
+  Main = self(),
+  spawn(fun () -> friends_loop(Main, []) end).
+friends_loop(Main, Asked_Nodes) ->
+  sleep(5),
+  io:format("Check friends~n"),
+  Main ! {check_friends, self()},
+  receive
+    {need_friends, Nodes} ->
+      io:format("Response need_friends~n"),
+      % Ask each friend till we get 3 friends
+      Node = get_random_friend_or_teacher(Nodes -- Asked_Nodes),
+      % We need to make request
+      Main ! {request_friends, Node},
+      friends_loop(Main, [Node | Asked_Nodes]);
+    {enough_friends} ->
+      io:format("Enough friends~n"),
+      friends_loop(Main, [])
   end.
 
-loop(Nodes, Old_nonces) ->
-  Nonces = [check_friends_list(Nodes, Old_nonces) | Old_nonces],
-  receive
+% This sends remove_nonces with Nonces after a timeout of TIMEOUT to the main loop
+nonces_cleaner(Main, Nonces) ->
+	spawn(fun () ->
+						sleep(?TIMEOUT),
+						Main ! {remove_nonce, Nonces}
+				end),
+	Nonces.
+
+loop(Nodes, Nonces) ->
+	receive
+		% Internal communication to keep friends
+		{check_friends, Sender} ->
+			case length(Nodes) < 3 of
+        true -> Sender ! {need_friends, Nodes};
+        false -> Sender ! {enough_friends}
+      end,
+      loop(Nodes, Nonces);
+    {request_friends, Node} ->
+      loop(Nodes, Nonces ++ nonces_cleaner(self(), [get_friends(self(), Node)]));
+    {remove_nonce, Rm_nonces} ->
+      loop(Nodes, Nonces -- Rm_nonces);
+
+    % Reply for friendes requests
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref}, loop(Nodes, Nonces);
-    {request_friends, Teacher} ->
-      New_nonces = case length(Nodes) < 3 of
-                     true ->
-                       case Teacher or (length(Nodes)  == 0) of
-                         true -> nonces_cleaner(self(), [ask_teacher(self())]) ++ Nonces;
-                         false -> nonces_cleaner(self(), [ask_friend(self(), Nodes)]) ++ Nonces
-                       end;
-                     false ->
-                       Nonces
-                   end,
-      loop(Nodes, New_nonces -- [{int_friends, 1}]);
     {get_friends, Sender, Nonce} ->
-      New_nodes = add_nodes([Sender], Nodes),
-      Sender ! {friends, Nonce, New_nodes},
-      loop(New_nodes, Nonces);
-    {remove_nonce, Rm_nonces} ->
-      %TODO: resend message if we actually remove nonces
-      loop(Nodes, Nonces -- Rm_nonces);
+      Sender ! {friends, Nonce, Nodes},
+      loop(Nodes, Nonces);
+   	{get_previous, Sender, Nonce, Prev_block_id} ->
+      storage  ! {get_previous, Nonce, Sender, Prev_block_id},
+      loop(Nodes, Nonces);
+    {get_head, Sender, Nonce} ->
+      storage ! {get_head, Sender, Nonce},
+      loop(Nodes, Nonces);
+
+    % Update Nodes storage
     {friends, Nonce, Incomming_nodes} ->
       case lists:member({friends, Nonce}, Nonces) of
-        true ->
-          New_nodes = add_nodes(Incomming_nodes, Nodes),
-          % If we still don't have enough friends ask the the teacher
-          New_nonces = case length(New_nodes) < 3 of
-            true -> [check_friends_list(New_nodes, Nonces) | Nonces];
-            false -> Nonces
-          end,
-          io:format("~p nodes discovered~n", [length(Incomming_nodes)]),
-          io:format("~p Number of avaible nodes~n", [length(New_nodes)]),
-          % Ask all new Nodes for there head
-          This_nonces = request_head_all(Incomming_nodes -- [self()]),
-          %We remove the Nonce and we need to add Nonces for each head request
-          loop(New_nodes, New_nonces ++ nonces_cleaner(self(), This_nonces) -- [{friends, Nonces}]);
-        false ->
-          io:format("INVALID MESSAGE: We got a wrong nonce "
+        true -> loop(add_nodes(Incomming_nodes, Nodes), Nonces -- [Nonce]);
+        false -> io:format("INVALID MESSAGE: We got a wrong nonce "
                     "with for friends~n"),
           loop(Nodes, Nonces)
       end;
     {dead, Node} ->
       io:format("Dead node ~p~n", [Node]),
       loop(Nodes -- [Node], Nonces);
-    {get_previous, Sender, Nonce, Prev_block_id} ->
-      storage  ! {get_previous, Nonce, Sender, Prev_block_id},
-      loop(Nodes, Nonces);
-    {previous, Nonce, Block} ->
-      case lists:member({previous, Nonce}, Nonces) of
-        true ->
-          storage ! {add_previous_block, Block},
-          loop(Nodes, Nonces -- [{previous, Nonce}]);
-        false ->
-          io:format("INVALID MESSAGE: We got a wrong nonce "
-                    "with for previous~n"),
-          loop(Nodes, Nonces)
-      end;
-    {get_head, Sender, Nonce} ->
-      storage ! {get_head, Sender, Nonce},
-      loop(Nodes, Nonces);
-    {head, Nonce, Block} ->
-      case lists:member({head, Nonce}, Nonces) of
-        true ->
-          storage ! {add_block, Block},
-          loop(Nodes, Nonces -- [{head, Nonce}]);
-        false ->
-          io:format("INVALID MESSAGE: We got a wrong nonce "
-                    "with head~n"),
-          loop(Nodes, Nonces)
-      end;
-    %Alogritm for gossiping blocks
+
+    % Update Block and Transaction storage
     {update, Block} ->
       storage ! {add_block, Block},
       loop(Nodes, Nonces);
-    %Alogritm for gossiping transections
     {push, Transaction} ->
       storage ! {add_transaction, Transaction},
       loop(Nodes, Nonces);
+
+    {add_previous, Block} ->
+       storage ! {add_previous_block, Block},
+       loop(Nodes, Nonces);
+    {add_head, Nonce, Block} ->
+      storage ! {add_block, Block},
+      loop(Nodes, Nonces);
+
     %Gossip
     {gossip, Data} ->
-      send_all(Nodes, Data), loop(Nodes, Nonces);
+      send_all(Nodes, Data),
+      loop(Nodes, Nonces);
+
     % Show is used for debuging
     {show} ->
       io:format("Number of nodes ~p~n", [length(Nodes)]),
-      io:format("Number of nonces ~p~n", [length(Nonces)]);
-    {request_previous, Prev_block_id} ->
-      % Ask a random friend for the block
-      Ref = make_ref(),
-      msg_anomaly(lists:nth(rand:uniform(length(Nodes)), Nodes) , {get_previous, self(), Ref, Prev_block_id}),
-      loop(Nodes, [Ref | Nonces])
+      loop(Nodes, Nonces)
   end.
 
 storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
@@ -273,7 +285,7 @@ explore_chain(Blocks, Heads, Head_to_insert, Prev_head_id, Depth) ->
         false ->
           io:format("Need to request block"),
           %request block
-          storage ! {add_head, {Head_to_insert, 0}, []},
+          storage ! {add_head, {Head_to_insert, 1}, []},
           jsparber_node ! {request_previous, Prev_head_id}
       end
   end.
@@ -321,8 +333,8 @@ remove_transactions(Transections, {_, _, List_of_transection, _}) ->
 % Return longest head out of a list of heads of form {Block_id, Length}
 get_longest_head(Heads) ->
   {Head_id, _} = get_longest_head(Heads, {none, 0}),
+  io:format("Longest head ~p~n", [Head_id]),
   Head_id.
-
 
 get_longest_head([], Max_length) -> Max_length;
 get_longest_head([{Id, Length} | T],
@@ -347,32 +359,32 @@ get_block([{Block_id, Prev_block_id,
      true -> get_block(T, id)
   end.
 
-ask_teacher(Self) ->
-  Ref = make_ref(),
-  io:format("Ask teacher for more friends~n"),
-  {teacher_node, ?TEACHERNODE} ! {get_friends, Self, Ref},
-  {friends, Ref}.
+% Returns a random friend from Nodes or TEACHER_NODE if there are no friends
+get_random_friend_or_teacher([]) -> ?TEACHER_NODE;
+get_random_friend_or_teacher(Nodes) -> get_random_friend(Nodes).
 
-ask_friend(Main, Nodes) ->
-  Ref = make_ref(),
-  io:format("I only have ~p friends. Ask a friend "
-            "for more friends~n",
-            [length(Nodes)]),
-  lists:nth(rand:uniform(length(Nodes)), Nodes) !  {get_friends, Main, Ref},
-  {friends, Ref}.
+% Returns a random friend from Nodes
+get_random_friend([]) -> none;
+get_random_friend(Nodes) -> lists:nth(rand:uniform(length(Nodes)), Nodes).
 
 add_nodes([], Nodes) -> Nodes;
-add_nodes([H | T], Nodes) ->
-  if self() /= H ->
+add_nodes(New_nodes, Nodes) ->
+  H = get_random_friend(New_nodes),
+  if
+    H == none ->
+      Nodes;
+    length(Nodes) > 3 ->
+      Nodes;
+    self() /= H ->
        case lists:member(H, Nodes) of
-         true -> add_nodes(T, Nodes);
+         true -> add_nodes(New_nodes -- [H], Nodes);
          false ->
            io:format("New node ~p~n", [H]),
            Self = self(),
            watch(Self, H),
-           add_nodes(T, [H | Nodes])
+           add_nodes(New_nodes -- [H], [H | Nodes])
        end;
-     true -> add_nodes(T, Nodes)
+     true -> add_nodes(New_nodes -- [H], Nodes)
   end.
 
 main() ->
@@ -381,6 +393,7 @@ main() ->
   io:format("A new jsparber_node registered~n"),
   register(storage,
            spawn(fun () -> storage_loop([], [], [], []) end)),
+  friends_loop(),
   loop([], []).
 
 %%%%%%%%%%%%%%%% Testing only, do not use! %%%%%%%%%%%%%%%%%%%%
