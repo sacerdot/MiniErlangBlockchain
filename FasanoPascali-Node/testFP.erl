@@ -209,9 +209,9 @@ testRebuild() ->
 %% testFP:testBlockANDtransactionDouble().
 %% testFP:testNoFollowers().
 %% testFP:testRebuild().
-
+%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% todo test terminati
+%% test terminati
 %% topologia amici testata e funzionante
 %% gossiping testato e funzionante
 %% mining blocco
@@ -219,12 +219,9 @@ testRebuild() ->
 %% transazioni ripetute nei blocchi
 %% algoritmo di ricostruzione della catena
 %% NoFollowers
+%% testare perdita di messaggi e arrivo di messaggi doppi
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% todo testare:
-%% testare perdita di messaggi e arrivo di messaggi doppi
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 %% Quando ricevo un blocco che non conosco creo un loop (effettuando il gossiping) finchè qualcuno non mina
 %% un nuovo blocco con almeno 1 transazione del blocco gossippato in Loop. Ciò avviene specialmente quando 1 nodo
 %% è isolato dalla rete ovvero quando non ha followers e riceve una transazione, quindi mina e ritrasmette il

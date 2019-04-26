@@ -10,16 +10,9 @@
 -author("andrea").
 -export([managerTransactions/4, initManagerBlock/5, initRebuildBlockChain/5, mining/2, managerHead/1]).
 
-
 %%Blocco= {IDnuovo_blocco,IDblocco_precedente, Lista_di_transazioni, Soluzione}
-%%Soluzione= proof_of_work:solve({IDblocco_precedente,Lista_di_transazioni})
-%%proof_of_work:check({IDblocco_precedente,Lista_di_transazioni}, Soluzione)
 
-
-%% Attualmente il mining riparte esclusivamente se accetto un blocco o se accetto una catena diversa dalla mia che ha generato un fork
-
-
-%% gestisce le transazioni
+%% l'attore istanziato su tale funzione gestisce la Pool delle Transazioni e tutte le richieste inerenti ad essa
 managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, TransactionsInBlocks) ->
 %%  io:format("~p ->+++++++ managerTransactions  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [self(), PoolTransactions, TransactionsInBlocks]),
   receive
@@ -47,7 +40,7 @@ managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, Transactions
   end,
   managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, TransactionsInBlocks).
 
-
+%%inizializza il rebuild della catena ottenendo gli amici dal manager degli amici e avviando la procedura iterativa di ricostruzione
 initRebuildBlockChain(PIDManagerBlock, PIDManagerFriends, PIDMining, NewBlock, Sender) ->
   TempNonceF = make_ref(),
   PIDManagerFriends ! {get_friends, self(), TempNonceF},
@@ -72,17 +65,22 @@ rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, InitIndex) 
   lists:nth(Index, FriendsPlusSender) ! {get_previous, self(), TempNonceF, element(2, lists:nth(1, NewBlockChain))},
   receive
     {previous, TempNonceF, BlockPrevious} ->
-      TempNewBlockChain = [BlockPrevious] ++ NewBlockChain,
-      TempNonceB = make_ref(),
-      PIDManagerBlock ! {isForkPoint, TempNewBlockChain, self(), TempNonceB},
-      receive
-        {not_found, TempNonceB} -> rebuildBlockChain(PIDManagerBlock, TempNewBlockChain, FriendsPlusSender, Index - 1);
-        {stopRebuild, TempNonceB} -> do_nothing
+      case checkTransactionsToBlockChain(element(3, BlockPrevious), NewBlockChain) of
+        false ->%%stopRebuild perchè entrando in questa casistica vuol dire che la catena che sto ricostruendo è errata poichè contiene transazioni ripetute
+          do_nothing;
+        true ->
+          TempNewBlockChain = [BlockPrevious] ++ NewBlockChain,
+          TempNonceB = make_ref(),
+          PIDManagerBlock ! {isForkPoint, TempNewBlockChain, self(), TempNonceB},
+          receive
+            {not_found, TempNonceB} -> rebuildBlockChain(PIDManagerBlock, TempNewBlockChain, FriendsPlusSender, Index - 1);
+            {stopRebuild, TempNonceB} -> do_nothing
+          end
       end
   after 10000 -> rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, Index)
   end.
 
-%% gestisce i blocchi
+%% l'attore istanziato su tale funzione gestisce la BlockChain e tutte le richieste inerenti ad essa
 initManagerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage) ->
   PIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, self()]),
   managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, []).
@@ -179,7 +177,6 @@ managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions
       after 5000 -> MyPid ! {head, Nonce, Block}
       end;
 
-%%    todo gestione transazioni duplicate blockchain
     {isForkPoint, NewPartBlockChain, Sender, Nonce} ->
       IdPrevious = element(2, lists:nth(1, NewPartBlockChain)),
       NewBlockChain = case IdPrevious of
@@ -247,25 +244,29 @@ establishLongestChain(ManagerTransaction, BlockChain, NewBlockChain, PointFork) 
     true -> BlockChain
   end.
 
+%%estrae la lista di tutte le transazioni contenute in una BlockChain
 extractTransaction(BlockChain) -> extractTransaction(BlockChain, []).
 extractTransaction([], Transactions) -> Transactions;
 extractTransaction([H | T], Transactions) ->
   NewTransactions = Transactions ++ element(3, H),
   extractTransaction(T, NewTransactions).
 
-indexOfBlock(IdBlockPrevious, List) -> indexOfBlock(IdBlockPrevious, List, 1).
+%%controlla se nella BlockChain è contenuto un blocco con Id uguale a quello ricercato, nel caso affermativo risponde con la posizione del blocco
+indexOfBlock(IdBlock, List) -> indexOfBlock(IdBlock, List, 1).
 indexOfBlock(_, [], _) -> not_found;
-indexOfBlock(IdBlockPrevious, [{IdBlockPrevious, _, _, _} | _], Index) -> Index;
-indexOfBlock(IdBlockPrevious, [_ | Tl], Index) -> indexOfBlock(IdBlockPrevious, Tl, Index + 1).
+indexOfBlock(IdBlock, [{IdBlock, _, _, _} | _], Index) -> Index;
+indexOfBlock(IdBlock, [_ | Tl], Index) -> indexOfBlock(IdBlock, Tl, Index + 1).
 
+%%controlla tramite patter matching se l'id del blocco precedente corrisponde alla testa della BlockChain
 equalsPrevious(none, []) -> true;
 equalsPrevious(_, []) -> false;
-equalsPrevious(Item, BlockChain) -> equalsPrevious(check, Item, lists:nth(length(BlockChain), BlockChain)).
-equalsPrevious(check, Item, {Item, _, _, _}) -> true;
+equalsPrevious(IDPreviousBlock, BlockChain) -> equalsPrevious(check, IDPreviousBlock, lists:nth(length(BlockChain), BlockChain)).
+equalsPrevious(check, IDPreviousBlock, {IDPreviousBlock, _, _, _}) -> true;
 equalsPrevious(check, _, _) -> false.
 
+%%l'attore istanziato su tale funzione si occupa del mining di un nuovo blocco
 mining(PIDManagerTransactions, PIDManagerBlocks) ->
-  nodeFP:sleep(rand:uniform(5)),%%todo rand time only for test
+%%  nodeFP:sleep(rand:uniform(5)),%% rand time only for test
   MyPid = self(),
 %%  io:format("PID_block ~p PidMining ~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks, self()]),
   Nonce = make_ref(),
@@ -291,6 +292,7 @@ mining(PIDManagerTransactions, PIDManagerBlocks) ->
       end
   end.
 
+%%lo scopo dell'attore istanziato su tale funzione è quello di tenere la visione della BlockChain sempre aggiornata almeno rispetto ai sui amici
 managerHead(MainPID) ->
   receive
     {follower} -> do_nothing
@@ -310,7 +312,7 @@ getNRandomTransactions(TransactionsChosen, PoolTransactions, N) ->
       end
   end.
 
-%%Controlla che nessuna delle transazioni sia contenuta nella BlockChain rispondendo true se non sono contenute false altrimenti
+%%Controlla che nessuna delle transazioni sia contenuta nella BlockChain, rispondendo true se non sono contenute false altrimenti
 checkTransactionsToBlockChain(_, []) -> true;
 checkTransactionsToBlockChain(Transactions, [H | T]) ->
   case checkListsOfTransactions(Transactions, element(3, H)) of

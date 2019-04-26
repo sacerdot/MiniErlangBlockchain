@@ -81,7 +81,7 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
       newFriendsRequest(PIDMain, FriendsLess, 1, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage);
 
     {get_friends, Sender, Nonce} ->
-      sendMaybeWrongMessages(Sender, {friends, Nonce, Friends}, false);%%todo true
+      sendMaybeWrongMessages(Sender, {friends, Nonce, Friends}, true);
 
     {sendMessageRandFriend, Message} ->
       R = rand:uniform(length(Friends)),
@@ -104,7 +104,7 @@ gossipingMessage(Friends) ->
   gossipingMessage(Friends).
 gossipingMessage([], _) -> ok;
 gossipingMessage([H | T], Message) ->
-  sendMaybeWrongMessages(H, Message, false),%%todo true
+  sendMaybeWrongMessages(H, Message, true),
   gossipingMessage(T, Message).
 
 %% InitFriends è stato inserito per evitare di spawn nodi monitor già esistenti e quindi far ritornare solo i nuovi amici
@@ -141,7 +141,6 @@ flushMailBox() ->
 
 %% IsErrorActivated is used only for test reasons
 sendMaybeWrongMessages(PidRecevier, Message, IsErrorActivated) ->
-%%  todo probabilità 100% che si perda I messaggi
   case IsErrorActivated of
     false -> PidRecevier ! Message;
     true ->
