@@ -47,8 +47,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
     	NewTransactionsList = case lists:member(NewTransaction, TransactionsList) of
     		true ->
     	        TransactionsList;
-    	    false ->  io:format ("leng ~p~p~n", [length(Nodes), Nodes]),
-    	              add_transaction(NewTransaction, Nodes),
+    	    false -> add_transaction(NewTransaction, Nodes),
     	             io:format ("NewTransaction~n"),
     	             [NewTransaction | TransactionsList]
     	    end,
@@ -57,13 +56,14 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
     {update,  NewBlock} ->    %still need to delete transactions in the block
         UpdatedBlocks = Blocks,
         UpdatedHeads = Heads,
+        UpdatedNonces = Nonces,
         case lists:member(NewBlock, Blocks) of
         	 false->      
             case  proof_of_work:check({NewBlock#block.idPreviousBlock, NewBlock#block.transactions}, NewBlock#block.solution) of
         	    true ->  io:format("New Block added ~p~n",[NewBlock]),
         	             case findBlockGivenId (Blocks, NewBlock#block.idPreviousBlock) == notfound of  %if the previous is not none and is missing I ask for previous
             	              true->  Ref = make_ref(),
-                                      Nonces = [Nonces | Ref],
+                                      UpdatedNonces = [ Ref| Nonces],
             	                      randomFriend(Nodes) ! {get_previous, self(), Ref, NewBlock#block.idPreviousBlock};
                               %if the block is added
                               false -> UpdatedBlocks = [NewBlock | Blocks],
@@ -79,7 +79,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
             end;
             true -> present_yet
         end,
-        loop(Nodes, TransactionsList, UpdatedBlocks, UpdatedHeads, Nonces);
+        loop(Nodes, TransactionsList, UpdatedBlocks, UpdatedHeads, UpdatedNonces);
         
     {previous, Nonce, NewBlock} ->
         case lists:member(Nonce, Nonces) of
@@ -129,7 +129,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
         case lists:member(Nonce, Nonces) of
         	false -> nonce_not_found;
         	true ->
-                    ID = maximumLengthHead (Heads),
+                    ID = maximumLengthHead (Heads, none),
                     Head = findBlockGivenId(Blocks, ID),
                     Sender ! {head, Nonce, Head}
         end,
@@ -148,21 +148,33 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
           lists:foreach(fun(N) -> 
           	N ! {push, NewTransaction}
           	end, Nodes),
-        loop (Nodes, TransactionsList, Blocks, Heads, Nonces)
+        loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
+
+     {ask_transactions} ->
+            Self = self(),
+              io:format("asking...~n"),
+            Prev = maximumLengthHead(Heads, none),
+            PrevId = case Prev of 
+            	none -> [];
+            	Y -> Y#head_of_blocks.head_blockID
+            end,
+
+           % PrevId = Prev#head_of_blocks.head_blockID,
+            spawn (fun() -> mining( Self, TransactionsList, PrevId) end),
+      loop (Nodes, TransactionsList, Blocks, Heads, Nonces)
+
   end.        
 
-maximumLengthHead (Heads) ->
-       MaxLeng = 0,
-       Elem = none,
-       lists:foreach(fun(N) ->
-       	                case N#head_of_blocks.leng > MaxLeng of
-       		                 true -> Elem = N#head_of_blocks.head_blockID,
-       		                         MaxLeng = N#head_of_blocks.leng;
-       		                 false -> ok
-                        end                
-                    end, Heads),
-       Elem.
+maximumLengthHead ([], Res) -> Res;
 
+maximumLengthHead ([H|T], Res) ->
+    case Res == none of
+    	true -> maximumLengthHead (T, H#head_of_blocks.head_blockID);
+    	false -> case H#head_of_blocks.leng > Res#head_of_blocks.leng of
+    		          true -> maximumLengthHead (T, H#head_of_blocks.head_blockID);
+    		          false -> maximumLengthHead (T, Res)
+                 end
+    end.
 
 findBlockGivenId ([], _) ->
     notfound;
@@ -217,9 +229,19 @@ sendMessage (Recipient, Content) ->
     end.
 
 mining (MyNode, Transactions, IdPrev) ->
-    Solution = proof_of_work:solve({IdPrev, Transactions}),
-    NewBlock = #block{idBlock = make_ref(), idPreviousBlock = IdPrev, transactions = Transactions, solution = Solution},
-    MyNode ! {update, NewBlock}.
+    sleep(5),
+    case length (Transactions) of
+        	X when X < 2 ->   io:format("Waiting for more blocks~n");
+        	Y when Y > 10 ->  ("start mining...~n"),
+        	                  Solution = proof_of_work:solve({IdPrev, Transactions}),
+                              NewBlock = #block{idBlock = make_ref(), idPreviousBlock = IdPrev, transactions = Transactions, solution = Solution},
+                              MyNode ! {update, NewBlock};
+        	Z ->              Solution = proof_of_work:solve({IdPrev, lists:sublist (Transactions, 10)}),
+                              NewBlock = #block{idBlock = make_ref(), idPreviousBlock = IdPrev, transactions = Transactions, solution = Solution},
+                              MyNode ! {update, NewBlock}
+    end,
+    MyNode ! {ask_transactions}.
+    
       
 
 randomFriend (Nodes) -> 
@@ -227,7 +249,7 @@ randomFriend (Nodes) ->
 	    lists:nth(IndexNode, Nodes).
 
 research (Nodes, Self)  ->
-    sleep (3),
+    sleep (5),
   %  io:format("numero nodi ~p~n",[length(Nodes)]),
     NUM = length(Nodes) + 1,
     RDM = rand:uniform(NUM),
@@ -247,14 +269,13 @@ research (Nodes, Self)  ->
 
 makeT (Payload) -> 
        NewT = #transaction{idTransaction = make_ref(), payload = Payload},
-       nodeLS ! {push, NewT}.
-
-       
+       nodeLS ! {push, NewT}.       
 
 main() ->
     Self = self(),
     register(nodeLS, self()),
-    spawn(fun () -> research([], Self) end),
+    spawn(fun () -> research ([], Self) end),
+    spawn(fun () -> mining (Self, [], none) end),
     Ref = make_ref(),
     {teacher_node, teacher@localhost} ! {get_friends, self(), Ref},
     loop([],[],[],[], [Ref]).
