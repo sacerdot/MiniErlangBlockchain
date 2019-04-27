@@ -65,7 +65,10 @@ compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In
             % e se lo trova risponde, altrimenti no
             spawn(fun()-> 
                 Res = searchBlock(ID_Blocco,Chain),
-                sendMessage(Mittente,{previous, Nonce, Res})
+                case Res =:= none of
+                    true -> nothing_to_send;
+                    false -> sendMessage(Mittente,{previous, Nonce, Res})
+                end
             end),
             compute(NameNode,PidRoot,PidRestore,PidBlockG,PidM,Chain,{T_ToMine,T_Mined},T_In_Mining);
         {get_head, Mittente, Nonce} ->

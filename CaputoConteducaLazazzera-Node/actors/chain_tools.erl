@@ -169,8 +169,8 @@ searchPrevious(ID_Prev,FList) ->
     Nonce = make_ref(),
     sendMessage(Friend, {get_previous,self(),Nonce,ID_Prev}),
     receive 
-        {previous,Nonce,none} -> 
-            searchPrevious(ID_Prev,FList--[Friend]);               
+        % {previous,Nonce,none} -> 
+        %     searchPrevious(ID_Prev,FList--[Friend]);               
         {previous,Nonce,Blocco} -> 
             case checkBlock(Blocco) of
                 true -> 
@@ -201,15 +201,6 @@ getRestChain({Friend,FListToAsk,FList},Chain,TList,ID_Prev_Current) ->
     Ref = make_ref(),
     sendMessage(Friend, {get_previous, self(), Ref, ID_Prev_Current}),
     receive
-        {previous, Ref, none} -> 
-            % se Friend non ha il blocco richiesto chiedo ad un altro amico
-            % ma se non so più a chi chiedere allora restituisco {[],[]} caso raro
-            case length(FListToAsk) =:= 0 of
-                true -> throw(none);
-                false -> 
-                    AnotherFriend = lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
-                    getRestChain({AnotherFriend,FListToAsk--[AnotherFriend],FList},Chain,TList,ID_Prev_Current)
-                end;
         {previous, Ref, PrevBlock} ->
             {_,ID_blocco_prev,Transaction,_} = PrevBlock,
             % se Friend ce l'ha continuo a chiedere a lui
@@ -288,3 +279,13 @@ askChainFriends(FList) ->
         % throw(discarded) % scarto il blocco e rimane la catena mia
 
 % end
+% !!!Appunti: Se riceviamo none come risposta ad una get_previuous
+% {previous, Ref, none} -> 
+%             % se Friend non ha il blocco richiesto chiedo ad un altro amico
+%             % ma se non so più a chi chiedere allora restituisco {[],[]} caso raro
+%             case length(FListToAsk) =:= 0 of
+%                 true -> throw(none);
+%                 false -> 
+%                     AnotherFriend = lists:nth(rand:uniform(length(FListToAsk)),FListToAsk),
+%                     getRestChain({AnotherFriend,FListToAsk--[AnotherFriend],FList},Chain,TList,ID_Prev_Current)
+%                 end;
