@@ -1,4 +1,5 @@
 -module(node).
+-author("Luca Serena").
 -export([main/0]).
 -export([makeT/1]).
 -record(transaction, {idTransaction, payload}).
@@ -16,17 +17,14 @@ watch(Main,Node) ->
   after 2000 -> Main ! {dead, Node}
   end.
 
-
 loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
   receive
     {ping, Sender, Ref} ->
       Sender ! {pong, Ref},
-      %sendMessage(Sender, {pong, Ref}),
        io:format("Pong sent to  ~p~n",[Sender]),
        loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     {friends, Nonce, New_Nodes} ->
-      %  io:format("nodes-received  ~p~p~n",[length(Nodes), length(New_Nodes)]),
         New_Nonces = Nonces,
         case lists:member(Nonce, Nonces) of
        	    true -> Friends = addNode (Nodes, New_Nodes),
@@ -53,61 +51,61 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
     	    end,
     	loop(Nodes, NewTransactionsList, Blocks, Heads, Nonces);
 
-    {update,  NewBlock} ->    %still need to delete transactions in the block
-        UpdatedBlocks = Blocks,
-        UpdatedHeads = Heads,
-        UpdatedNonces = Nonces,
+    {update, NewBlock} ->    %still need to delete transactions in the block
         case lists:member(NewBlock, Blocks) of
-        	 false->      
+        	false->      
             case  proof_of_work:check({NewBlock#block.idPreviousBlock, NewBlock#block.transactions}, NewBlock#block.solution) of
         	    true ->  io:format("New Block added ~p~n",[NewBlock]),
-        	             case findBlockGivenId (Blocks, NewBlock#block.idPreviousBlock) == notfound of  %if the previous is not none and is missing I ask for previous
-            	              true->  Ref = make_ref(),
-                                      UpdatedNonces = [ Ref| Nonces],
-            	                      randomFriend(Nodes) ! {get_previous, self(), Ref, NewBlock#block.idPreviousBlock};
-                              %if the block is added
-                              false -> UpdatedBlocks = [NewBlock | Blocks],
-                                        case findHeadGivenId (Heads, NewBlock#block.idPreviousBlock) of
-                         	                 notfound -> NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = 1},
-                         	                             UpdatedHeads = [NewHead | Heads];
+                         comunicate_block(NewBlock, Nodes),
+        	             NewTransactions = lists:subtract(TransactionsList, NewBlock#block.transactions),
+        	             case findBlockGivenId (Blocks, NewBlock#block.idPreviousBlock) of  %if the previous is not none and is missing I ask for previous
+            	              none -> NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = 1},                         	                             
+            	                      io:format("Head added ~n"),
+            	                      loop(Nodes, NewTransactions, [NewBlock|Blocks], [NewHead|Heads], Nonces);
+            	              notfound->  Ref = make_ref(),  
+                	                  io:format("asking for previous block~n"),    	                       
+            	                      randomFriend(Nodes) ! {get_head, self(), Ref},
+            	                      loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, [Ref|Nonces]);        
+                              Y ->  %if the previous block is found
+                                    case findHeadGivenId (Heads, Y#block.idBlock) of
+                         	                 notfound ->% NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = 1},
+                         	                             io:format("Head not found ~n"),
+                         	                             loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, Nonces);
                          	                 X ->        NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = X#head_of_blocks.leng + 1},
-                         	                             UpdatedHeads = [NewHead| Heads],
-                         	                             UpdatedHeads = UpdatedHeads -- [X]
-                                        end
+                         	                             UpdatedHeads = Heads -- [X],
+                         	                             io:format("Head substituted ~n"),
+                         	                             loop(Nodes, NewTransactions, [NewBlock|Blocks], [NewHead | UpdatedHeads], Nonces)
+                                    end
                         end;
-               	false -> io:format("Block not valid ~n")
+               	false -> io:format("Block not valid ~n"),
+                    	loop(Nodes, TransactionsList, Blocks, Heads, Nonces)
             end;
-            true -> present_yet
-        end,
-        loop(Nodes, TransactionsList, UpdatedBlocks, UpdatedHeads, UpdatedNonces);
-        
+            true -> loop(Nodes, TransactionsList, Blocks, Heads, Nonces)
+        end;
+
     {previous, Nonce, NewBlock} ->
         case lists:member(Nonce, Nonces) of
-        	false -> nonce_not_found;
+        	false -> loop(Nodes, TransactionsList, Blocks, Heads, Nonces);
             true ->     
 	              RdmElem = randomFriend(Nodes),
                   case NewBlock#block.idPreviousBlock /= none of 
         	           true ->  
         	                 case findBlockGivenId(Blocks, NewBlock#block.idPreviousBlock) == notfound of
         	      	             true -> RdmElem ! {get_previous, self(), Nonce, NewBlock#block.idPreviousBlock};
-        	      	             false -> ok
+        	      	             false -> ok %gli dovrei dire: aggiorna la lunghezza di della head
         	                 end;
-        	      false -> is_first
-                  end
-        end,
-        loop(Nodes, TransactionsList, [Blocks|NewBlock], Heads, Nonces);
-
+        	            false -> is_first
+                  end,
+                  loop(Nodes, TransactionsList, [Blocks|NewBlock], Heads, Nonces)
+        end;
+        
     {get_previous, Sender, Nonce, PreviousID} ->
-        case lists:member(Nonce, Nonces) of
-             false -> nonce_not_found;
-             true ->
-                     Elem = findBlockGivenId(Blocks, PreviousID),
-                     case Elem == notfound of
-           	              false -> Sender ! {previous, Nonce, Elem};
-           	              true -> notfound
-                     end
-             end,
-           loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
+        Elem = findBlockGivenId(Blocks, PreviousID),
+         case Elem == notfound of
+    	        false -> Sender ! {previous, Nonce, Elem}; %sendMessage(Sender, {previous, Nonce, Elem});
+       	        true -> notfound
+        end,
+        loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     {head, Nonce, NewBlock} ->
         case lists:member(Nonce, Nonces) of
@@ -126,73 +124,77 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     {get_head, Sender, Nonce} -> 
-        case lists:member(Nonce, Nonces) of
-        	false -> nonce_not_found;
-        	true ->
-                    ID = maximumLengthHead (Heads, none),
-                    Head = findBlockGivenId(Blocks, ID),
-                    Sender ! {head, Nonce, Head}
-        end,
+        ID = maximumLengthHead (Heads, none),
+        Head = findBlockGivenId(Blocks, ID),
+        sendMessage (Sender, {head, Nonce, Head}),  % Sender ! {head, Nonce, Head}, 
+        Sender! {add_head, Nonce, findHeadGivenId(Heads, ID)},
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     {add_nonce, Nonce} ->
          loop(Nodes, TransactionsList, Blocks, Heads, [Nonce | Nonces]);
 
+    {add_head, Nonce, Head} ->
+        case lists:member(Nonce, Nonces) of
+        	 true ->  loop(Nodes, TransactionsList, Blocks, [Head| Heads], Nonces);
+             false -> loop(Nodes, TransactionsList, Blocks, Heads, Nonces)
+        end;
+    
+    % l'attore research comunica che il processo è terminato e ne viene chiamato uno nuovo, con la topologia aggiornata
     {ask_friend} ->
         Sel = self(),
         spawn(fun () -> research(Nodes, Sel) end),
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
-    {add_transaction, Payload} ->
-          NewTransaction = #transaction{idTransaction = make_ref(), payload = Payload},
-          lists:foreach(fun(N) -> 
-          	N ! {push, NewTransaction}
-          	end, Nodes),
-        loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
-
-     {ask_transactions} ->
-            Self = self(),
-              io:format("asking...~n"),
-            Prev = maximumLengthHead(Heads, none),
-            PrevId = case Prev of 
-            	none -> [];
-            	Y -> Y#head_of_blocks.head_blockID
-            end,
-
-           % PrevId = Prev#head_of_blocks.head_blockID,
-            spawn (fun() -> mining( Self, TransactionsList, PrevId) end),
-      loop (Nodes, TransactionsList, Blocks, Heads, Nonces)
-
+    %l'attore mining comunica che il processo è terminato e ne viene chiamato uno nuovo, con le transazioni da minare aggiornate
+    {ask_transactions, Mined} ->
+        NewTransactions = lists:subtract (TransactionsList, Mined),
+        Self = self(),
+        Prev = maximumLengthHead(Heads, none),
+        PrevId = case Prev of 
+          	none -> none;
+           	Y -> Y#head_of_blocks.head_blockID
+        end,
+        spawn (fun() -> mining(Self, NewTransactions, PrevId) end),
+        loop (Nodes, NewTransactions, Blocks, Heads, Nonces)
   end.        
 
 maximumLengthHead ([], Res) -> Res;
 
 maximumLengthHead ([H|T], Res) ->
     case Res == none of
-    	true -> maximumLengthHead (T, H#head_of_blocks.head_blockID);
+    	true -> maximumLengthHead (T, H);
     	false -> case H#head_of_blocks.leng > Res#head_of_blocks.leng of
     		          true -> maximumLengthHead (T, H#head_of_blocks.head_blockID);
     		          false -> maximumLengthHead (T, Res)
                  end
     end.
 
-findBlockGivenId ([], _) ->
-    notfound;
+findBlockGivenId ([], Id) ->
+    case Id == none of
+    	true -> none;
+    	false ->  notfound
+    end;
 
-findBlockGivenId ([Block|Tail], Id) ->
-    case Id of
-    	none -> none;
-    	X -> case Block#block.idBlock == Id of
-     	          true -> Block;
-     	          false -> findBlockGivenId(Tail, Id)
+findBlockGivenId ([H|T], Id) ->
+    case Id == none of
+    	true -> none;
+    	false -> case H#block.idBlock == Id of
+     	             true -> H;
+     	             false -> findBlockGivenId(T, Id)
      	end
     end.
 
-add_transaction (Trans, []) -> ok;
+add_transaction (_, []) -> ok;
 
 add_transaction (Trans, [H|T]) ->
     H ! {push, Trans},
     add_transaction (Trans, T).
+
+comunicate_block (_, []) -> ok;
+
+comunicate_block (Block, [H|T]) ->
+    H ! {update, Block},
+    comunicate_block (Block, T).
 
 addNode(Nodes, []) ->  Nodes;
 
@@ -213,12 +215,13 @@ addNode(Nodes, [H | T]) ->
 findHeadGivenId ([], _) ->
     notfound;
 
-findHeadGivenId ([H|Tail], Id) ->
+findHeadGivenId ([H|T], Id) ->
     case H#head_of_blocks.head_blockID == Id of
      	true -> H;
-     	false -> findBlockGivenId(Tail, Id)
+     	false -> findBlockGivenId(T, Id)
     end.
 
+%un messaggio su 10 viene perso e uno su 10 viene spedito 2 volte
 sendMessage (Recipient, Content) ->
     Behaviour = rand:uniform(10),
     case Behaviour of
@@ -228,45 +231,48 @@ sendMessage (Recipient, Content) ->
         X when X > 2 ->    Recipient ! Content
     end.
 
+%attore che si occupa di minare transazioni. Aspetta di avere in input almeno due transazioni per minare e non ne mina più di 10 alla volta
 mining (MyNode, Transactions, IdPrev) ->
-    sleep(5),
     case length (Transactions) of
-        	X when X < 2 ->   io:format("Waiting for more blocks~n");
-        	Y when Y > 10 ->  ("start mining...~n"),
-        	                  Solution = proof_of_work:solve({IdPrev, Transactions}),
-                              NewBlock = #block{idBlock = make_ref(), idPreviousBlock = IdPrev, transactions = Transactions, solution = Solution},
-                              MyNode ! {update, NewBlock};
-        	Z ->              Solution = proof_of_work:solve({IdPrev, lists:sublist (Transactions, 10)}),
-                              NewBlock = #block{idBlock = make_ref(), idPreviousBlock = IdPrev, transactions = Transactions, solution = Solution},
-                              MyNode ! {update, NewBlock}
-    end,
-    MyNode ! {ask_transactions}.
-    
-      
+        X when X < 2 ->  
+            sleep(5), %non sovraccaricare di richieste al processo main quando non ci sono transazioni
+            MyNode ! {ask_transactions, []};
+        Y  -> 
+            io:format("start mining...~n"),
+            ToMine = case Y > 10 of 
+               	 true -> lists:sublist (Transactions, 10);
+               	 false -> Transactions
+            end,
+            Solution = proof_of_work:solve({IdPrev, ToMine}),
+            NewBlock = #block{idBlock = make_ref(), idPreviousBlock = IdPrev, transactions = ToMine, solution = Solution},
+            io:format("block mined...~n"), 
+            MyNode ! {update, NewBlock},
+            MyNode ! {ask_transactions, ToMine}
+    end.
 
 randomFriend (Nodes) -> 
         IndexNode = rand:uniform(length(Nodes)),
 	    lists:nth(IndexNode, Nodes).
-
+ 
+%lo scopo di questo attore è, ogni 5 secondi, controllare che la topologia sia a posto. Se ci sono meno di 3 amici viene chiesto ad un altro
+%amico oppure al professore di fornire una lista di amici.
 research (Nodes, Self)  ->
     sleep (5),
-  %  io:format("numero nodi ~p~n",[length(Nodes)]),
     NUM = length(Nodes) + 1,
     RDM = rand:uniform(NUM),
-    case length (Nodes) of
-      	 3 -> ok;
-       	 Y -> 
+    case length (Nodes) >= 3 of
+      	 true -> ok;
+       	 false -> 
        	        Ref = make_ref(),
        	        nodeLS ! {add_nonce, Ref},
-       	        case RDM of 
-       	           	 NUM -> 
-       	           	      {teacher_node, teacher@localhost} ! {get_friends, Self, Ref};
-       	           	 X   -> 
-       	                 lists:nth (RDM, Nodes) ! {get_friends, Self, Ref}                   
+       	        case RDM == NUM of 
+       	           	 true -> {teacher_node, teacher@localhost} ! {get_friends, Self, Ref};
+       	           	 false -> lists:nth (RDM, Nodes) ! {get_friends, Self, Ref}     
        	        end
     end,
     nodeLS ! {ask_friend}.
 
+%funzione che consente a un nodo di fare una transazione. Una transazione è composta da ID e Payload (l'input fornito dall'utente-nodo)
 makeT (Payload) -> 
        NewT = #transaction{idTransaction = make_ref(), payload = Payload},
        nodeLS ! {push, NewT}.       
@@ -280,3 +286,8 @@ main() ->
     {teacher_node, teacher@localhost} ! {get_friends, self(), Ref},
     loop([],[],[],[], [Ref]).
     %spawn (fun() -> node:main() end).
+    %TODO: garbage collection:
+    %                         - togliere le heads che non hanno percorso completo da testa a primo blocco
+    %                         - togliere heads che hanno una lunghezza < 2 rispetto alla head principale
+    %                         - togliere i blocchi che non fanno parte di catena attive
+
