@@ -10,15 +10,10 @@
 -author("andrea").
 -export([init/0, sleep/1]).
 
-
 sleep(N) -> receive after N * 1000 -> ok end.
-
 
 init() ->
   PID = self(),
-
-  %% todo catturare morte dell'attore e riavviarlo per i 4 sottostanti
-  %% di conseguenza dopo averlo riavviato va effettuato l'upload dei PID nei vari attori che lo riportano
   PIDManagerNonce = spawn_link(topologyFP, managerNonce, [[]]),
   PIDManagerMessage = spawn_link(topologyFP, sendGetFriends, [PID, PIDManagerNonce]),
   PIDGossipingMessage = spawn_link(topologyFP, gossipingMessage, [[]]),
@@ -30,7 +25,7 @@ init() ->
   loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead).
 
 loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead) ->
-%%      chiedo amici al teacher_node
+%%chiedo amici al teacher_node
   NonceGlobalSend = make_ref(),
   PIDManagerNonce ! {updateNonce, NonceGlobalSend},%% serve perchè controllo il Nonce bel managerFriends
   TeacherPID = global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
@@ -43,8 +38,6 @@ loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
 
 loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID) ->
   process_flag(trap_exit, true),
-
-  io:format("~p -> -------------------------StartMAIn----------------------------- ~n", [self()]),
   receive
     {friends, Nonce, FriendsOfFriend} ->
       PIDManagerFriends ! {friends, Nonce, FriendsOfFriend};
@@ -56,8 +49,8 @@ loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
       PIDManagerTransaction ! {push, Transaction};
 
     {update, Sender, Block} ->
-      PIDManagerBlock ! {update, Sender, Block};
-
+      PIDManagerBlock ! {update, Sender, Block},
+      PIDManagerHead ! {follower};
 
     {get_previous, Mittente, Nonce, Idblocco_precedente} ->
       PIDManagerBlock ! {get_previous, Mittente, Nonce, Idblocco_precedente};
@@ -66,11 +59,9 @@ loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
       PIDManagerBlock ! {get_head, Mittente, Nonce};
 
     {ping, Sender, Ref} ->
-      Sender ! {pong, Ref},
-      PIDManagerHead ! {pong, Sender, TeacherPID};
+      Sender ! {pong, Ref};
 
     {maybeNoFollowers} ->
-      io:format("~p -> +++++++++++++++++++++++++++++NoFollowers----------------------------- ~n", [self()]),
       TempNonce = make_ref(),
       PIDManagerNonce ! {updateNonce, TempNonce},
       PIDManagerFriends ! {sendMessageRandFriend, {get_head, PIDManagerBlock, TempNonce}};

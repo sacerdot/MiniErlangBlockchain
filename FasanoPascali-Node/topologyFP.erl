@@ -15,7 +15,6 @@ watch(Main, Node) ->
   nodeFP:sleep(10),
   Ref = make_ref(),
   Node ! {ping, self(), Ref},
-%%  io:format("ping da ~p a ~p~n", [self(), Node]),
   receive
     {pong, Ref} -> watch(Main, Node)
   after 2000 -> Main ! {dead, Node}
@@ -39,7 +38,7 @@ managerNonce(Nonces) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Step: 0-> Skip; 1-> 1° richiesta; 2-> 2° richiesta nodeFP:sleep; 3-> chiedo al nodo prof.
+% Step: 0-> Skip; 1-> 1° richiesta; 2->sleep e 2° richiesta ; 3-> chiedo al nodo prof e sleep. Sleep in attore secondario
 newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage) ->
 %%  io:format("~p Start newFriendsRequest-> Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
   MyPid = self(),
@@ -77,14 +76,12 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
       end;
 
     {dead, Node} ->
-%%      io:format("~p -> Dead node ~p~n", [PIDMain, Node]),
       FriendsLess = Friends -- [Node],
       PIDGossipingMessage ! {updateFriends, FriendsLess},
       newFriendsRequest(PIDMain, FriendsLess, 1, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage);
 
     {get_friends, Sender, Nonce} ->
-%%      io:format("~p -> get_friends from node ~p~n", [PIDMain, Sender]),
-      sendMaybeWrongMessages(Sender,  {friends, Nonce, Friends}, false);%%todo true
+      sendMaybeWrongMessages(Sender, {friends, Nonce, Friends}, true);
 
     {sendMessageRandFriend, Message} ->
       R = rand:uniform(length(Friends)),
@@ -102,13 +99,12 @@ gossipingMessage(Friends) ->
       gossipingMessage(NewFriends);
     {gossipingMessage, Message} ->
       nodeFP:sleep(1),
-%%      io:format("+++++ gossipingMessage -> Friends:  ~p~n", [Friends]),
       gossipingMessage(Friends, Message)
   end,
   gossipingMessage(Friends).
 gossipingMessage([], _) -> ok;
 gossipingMessage([H | T], Message) ->
-  sendMaybeWrongMessages(H, Message, false),%%todo true
+  sendMaybeWrongMessages(H, Message, true),
   gossipingMessage(T, Message).
 
 %% InitFriends è stato inserito per evitare di spawn nodi monitor già esistenti e quindi far ritornare solo i nuovi amici
@@ -145,9 +141,8 @@ flushMailBox() ->
 
 %% IsErrorActivated is used only for test reasons
 sendMaybeWrongMessages(PidRecevier, Message, IsErrorActivated) ->
-  if
-    IsErrorActivated == false ->
-      PidRecevier ! Message;
+  case IsErrorActivated of
+    false -> PidRecevier ! Message;
     true ->
       RandomNumber = rand:uniform(10),
       case RandomNumber of
