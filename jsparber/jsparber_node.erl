@@ -382,14 +382,10 @@ check_block({_, Prev_block_id, List_of_transection, Solution}) ->
   proof_of_work:check({Prev_block_id, List_of_transection}, Solution).
 
 % Checks if block is new
-is_new_block([], none) -> false;
-is_new_block([], _) -> true;
-is_new_block(Blocks, {Id, _, _, _}) ->
-  io:format("Is new block ~p~n", [Id]),
-  is_new_block(Blocks, Id);
-is_new_block([{Block_id, _, _, _} | T], Id) ->
-  if Block_id == Id -> false;
-     true -> is_new_block(T, Id)
+is_new_block(Blocks, {Block_id, _, _, _}) ->
+  case get_block_by_id(Blocks, Block_id) of
+    false -> true;
+    _ -> false
   end.
 
 % Checks if a transection is new
