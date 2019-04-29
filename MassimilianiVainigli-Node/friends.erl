@@ -67,7 +67,7 @@ check_nodes(Parent, List_friends, Attempts, List_Nonces) ->
 
   % NewREF = nuovo riferimento che mandiamo a un amico per avere la sua lista
   % Ogni volta che verrà fatta la chiamata ricorsiva NewRef verrà aggiunta a List_nonces
-  NEWREF = if((length(List_friends) < 3) and (length(List_friends) > 0) and (length(List_Nonces) < 10 ) ) -> make_ref(); true -> [] end,
+  NEWREF = if((length(List_friends) < 3) and (length(List_friends) > 0) and (length(List_Nonces) < 11 ) ) -> make_ref(); true -> [] end,
   % se ho un numero di amici compreso tra [1,2] mando la richiesta a un amico casuale di passarmi la sua lista amici
   if
     ((length(List_friends) < 3) and (length(List_friends) > 0) and (length(List_Nonces) < 10 ) ) ->

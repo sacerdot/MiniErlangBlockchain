@@ -89,6 +89,10 @@ manager(Checker, BlockChain, Miner, List_friends, List_blocks, Not_inserted_tran
           manager(Checker, BlockChain, Miner, List_friends, List_blocks, Not_inserted_transactions ++ [Transazione], Mining_transactions)
       end;
 
+    % for debugging
+    {Sender, send_blockchain} ->
+      Sender ! {self(), blockchain, List_blocks};
+
   % stampe
     {stampa_amici} ->
       io:format("Manager: Sono ~p e ho come amici ~p ~n", [self(), List_friends]);
