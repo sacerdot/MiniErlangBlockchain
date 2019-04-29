@@ -1,12 +1,12 @@
 -module(jsparber_node).
 
--export([main/0, test/0]).
+-export([main/0, test/0, push/1]).
 
-% This is blockchain node, based on teacher_node.
-% TODO: Clean up heads and blocks
-% TODO: Maintain a friends list of exactly 3 nodes
-% TODO: Ask all friends for more friends before reasking the teacher
+% This is a blockchain node, based on teacher_node.
+% TODO: Clean up blocks
+% Currently we need at least one friend to create chain
 
+-define(NODE, jsparber_node).
 -define(TEACHER_NODE, {teacher_node, teacher_node@librem}).
 -define(DEAD_TOLERANZ, 0).
 %Timeout for request in seconds
@@ -14,9 +14,12 @@
 
 msg_anomaly(Sender, Msg) ->
   X = rand:uniform(10),
-  if ( X == 1 ) -> none; %Lost msg
-     ( X == 10 ) -> Sender ! Msg, Sender ! Msg; %Duplicate msg
-     true -> Sender ! Msg %No anomaly
+  if
+    % If sender is none then don't do anything
+    Sender == none -> none;
+    ( X == 1 ) -> none; %Lost msg
+    ( X == 10 ) -> Sender ! Msg, Sender ! Msg; %Duplicate msg
+    true -> Sender ! Msg %No anomaly
   end.
 
 sleep(N) ->
@@ -46,39 +49,48 @@ get_friends(Main, Dest) ->
   {friends, Nonce}.
 
 % Request previous Block (get_previous)
-% Keep track of the Nonce and remake the request when no reply within ?TIMEOUT
-get_previous(Main, Dest, Block_id) ->
+% Keep track of the Nonce and reply failed if now response within ?TIMEOUT
+get_previous(Reply, Storage, Block_id) ->
   spawn(fun () ->
             Nonce = make_ref(),
-            msg_anomaly(Dest, {get_previous, self(), Nonce, Block_id}),
+            ?NODE ! {ask, {get_previous, self(), Nonce, Block_id}},
             receive
-              {previous, Nonce, Block} -> Main ! {add_previous, Block}
-            after ?TIMEOUT * 1000 -> Main ! {failed, get_previous, Block_id}
+              {previous, Nonce, none} -> io:format("Didn't find block~p~n", [Block_id]), Reply ! {result, none};
+              {previous, Nonce, Block} -> case check_block(Block) of
+                                            true -> Reply ! {result, Block},
+                                                    % Add the block also to the block storage
+                                                    Storage ! {add, Block};
+                                            false -> Reply ! {result, failed}
+                                          end
+            after ?TIMEOUT * 1000 -> Reply ! {result, timeout}
             end
         end).
 
 % Request chain Head (get_head)
 % Keep track of the Nonce and remake the request when no reply within ?TIMEOUT
-get_head(Main, Dest) ->
+get_head(Reply, Storage) ->
   spawn(fun () ->
+            io:format("Request head from a friend~n"),
             Nonce = make_ref(),
-            msg_anomaly(Dest, {get_head, self(), Nonce}),
+            ?NODE ! {ask, {get_head, self(), Nonce}},
             receive
-              {head, Nonce, Block} -> Main ! {add_head, Block}
-            after ?TIMEOUT * 1000 -> Main ! {failed, get_head}
+              {head, Nonce, none} -> io:format("Got none as a head~n"), Reply ! {result, none};
+              {head, Nonce, Block} -> case check_block(Block) of
+                                        true -> Reply ! {result, Block},
+                                                % Add the block also to the head storage
+                                                Storage ! {add, Block};
+                                        false -> Reply ! {result, failed}
+                                      end
+            after ?TIMEOUT * 1000 -> Reply ! {result, timeout}
             end
         end).
 
-% Send update (update)
-% We don't need to track this message
-update(Main, Dest, Block) ->
-  Dest ! {update, Main, Block}.
-
 % Send push (update)
 % We don't need to track this message
-push(Dest, Transaction) ->
-  Dest ! {push, Transaction}.
+push(Transaction) ->
+  jsparber_node ! {push, Transaction}.
 
+% Loop to maintain 3 friends, it checks every 5 secounds if there are enough friends
 friends_loop() ->
   Main = self(),
   spawn(fun () -> friends_loop(Main, []) end).
@@ -88,7 +100,7 @@ friends_loop(Main, Asked_Nodes) ->
   Main ! {check_friends, self()},
   receive
     {need_friends, Nodes} ->
-      io:format("Response need_friends~n"),
+      io:format("Need more friends~n"),
       % Ask each friend till we get 3 friends
       Node = get_random_friend_or_teacher(Nodes -- Asked_Nodes),
       % We need to make request
@@ -101,17 +113,17 @@ friends_loop(Main, Asked_Nodes) ->
 
 % This sends remove_nonces with Nonces after a timeout of TIMEOUT to the main loop
 nonces_cleaner(Main, Nonces) ->
-	spawn(fun () ->
-						sleep(?TIMEOUT),
-						Main ! {remove_nonce, Nonces}
-				end),
-	Nonces.
+  spawn(fun () ->
+            sleep(?TIMEOUT),
+            Main ! {remove_nonce, Nonces}
+        end),
+  Nonces.
 
 loop(Nodes, Nonces) ->
-	receive
-		% Internal communication to keep friends
-		{check_friends, Sender} ->
-			case length(Nodes) < 3 of
+  receive
+    % Internal communication to keep friends
+    {check_friends, Sender} ->
+      case length(Nodes) < 3 of
         true -> Sender ! {need_friends, Nodes};
         false -> Sender ! {enough_friends}
       end,
@@ -127,208 +139,265 @@ loop(Nodes, Nonces) ->
     {get_friends, Sender, Nonce} ->
       Sender ! {friends, Nonce, Nodes},
       loop(Nodes, Nonces);
-   	{get_previous, Sender, Nonce, Prev_block_id} ->
-      storage  ! {get_previous, Nonce, Sender, Prev_block_id},
+    {get_previous, Sender, Nonce, Prev_block_id} ->
+      block_storage ! {get_previous, Nonce, Sender, Prev_block_id},
       loop(Nodes, Nonces);
     {get_head, Sender, Nonce} ->
-      storage ! {get_head, Sender, Nonce},
+      head_storage ! {get_head, Sender, Nonce},
       loop(Nodes, Nonces);
 
     % Update Nodes storage
     {friends, Nonce, Incomming_nodes} ->
-      case lists:member({friends, Nonce}, Nonces) of
-        true -> loop(add_nodes(Incomming_nodes, Nodes), Nonces -- [Nonce]);
-        false -> io:format("INVALID MESSAGE: We got a wrong nonce "
-                    "with for friends~n"),
-          loop(Nodes, Nonces)
-      end;
+      {New_nodes, New_nonces} = case lists:member({friends, Nonce}, Nonces) of
+                                  true -> {add_nodes(Incomming_nodes, Nodes), Nonces -- [Nonce]};
+                                  false -> io:format("INVALID MESSAGE: We got a wrong nonce "
+                                                     "with for friends~n")
+                                end,
+      loop(New_nodes, New_nonces);
     {dead, Node} ->
       io:format("Dead node ~p~n", [Node]),
       loop(Nodes -- [Node], Nonces);
 
-    % Update Block and Transaction storage
+    % Update Transaction storage
+    {push, Trans} ->
+      transaction_storage ! {add, Trans},
+      loop(Nodes, Nonces);
+
+    % Update Block storage
     {update, Block} ->
-      storage ! {add_block, Block},
-      loop(Nodes, Nonces);
-    {push, Transaction} ->
-      storage ! {add_transaction, Transaction},
+      io:format("Got new head block~n"),
+      head_storage ! {add, Block},
       loop(Nodes, Nonces);
 
-    {add_previous, Block} ->
-       storage ! {add_previous_block, Block},
-       loop(Nodes, Nonces);
-    {add_head, Nonce, Block} ->
-      storage ! {add_block, Block},
+    % Ask a friend for a Block or Head, in other words just send Data to a random friend
+    {ask, Data} ->
+      msg_anomaly(get_random_friend(Nodes), Data),
       loop(Nodes, Nonces);
-
     %Gossip
     {gossip, Data} ->
       send_all(Nodes, Data),
-      loop(Nodes, Nonces);
-
-    % Show is used for debuging
-    {show} ->
-      io:format("Number of nodes ~p~n", [length(Nodes)]),
       loop(Nodes, Nonces)
   end.
 
-storage_loop(Blocks, Heads, Transactions, Trans_mining) ->
-  io:format("Heads ~p~n", [Heads]),
-  receive
-    {add_head, New_head, Remove_head} ->
-      io:format("New head~n"),
-      storage_loop(Blocks, [New_head | Heads -- [Remove_head]], Transactions, Trans_mining);
-    {add_previous_block, Block} ->
-      {Final_blocks, Final_trans} = case check_block(Blocks, Block) of
-                                      true ->
-                                        New_blocks = [Block | Blocks],
-                                        % Explore chains with any missing previous block
-                                        explore_all_chains(New_blocks, Heads),
-                                        {New_blocks, remove_transactions(Transactions, Block)};
-                                      false -> {Blocks, Transactions}
-                                    end,
-      storage_loop(Final_blocks, Heads, Final_trans, Trans_mining);
-    {add_block, Block} ->
-      {Final_blocks, Final_trans, Final_mining_trans} = case check_block(Blocks, Block) of
-                                                          true ->
-                                                            io:format("New Block~n"),
-                                                            New_blocks = [Block | Blocks],
-                                                            % Explore chain till we find a old head, Block is in this case a head
-                                                            explore_chain(New_blocks, Heads, Block),
-                                                            jsparber_node ! {gossip, {update, Block}},
-                                                            {New_blocks, remove_transactions(Transactions, Block), remove_transactions(Trans_mining, Block)};
-                                                          false -> {Blocks, Transactions, Trans_mining}
-                                                        end,
-      storage_loop(Final_blocks, Heads, Final_trans, Final_mining_trans);
-    {add_transaction, Transaction} ->
-      io:format("Transection: ~p~n", [Transaction]),
-      case lists:member(Transaction, Transactions ++ Trans_mining) of
-        false ->
-          New_transactions = case check_transection(Blocks,
-                                                    Transaction)
-                             of
-                               true ->
-                                 io:format("Send transaction~n"),
-                                 jsparber_node ! {gossip, {push, Transaction}},
-                                 [Transaction | Transactions];
-                               false -> Transactions
-                             end,
-          {Remaing_transactions, Mining_transactions} = case
-                                                          length(New_transactions) > 9
-                                                        of
-                                                          true ->
-                                                            {Block_transactions, T_transactions} =
-                                                            lists:split(10, New_transactions),
-                                                            spawn(fun () ->
-                                                                      mine_block({get_longest_head(Heads),
-                                                                                  Block_transactions})
-                                                                  end),
-                                                            {T_transactions, Trans_mining ++ Block_transactions};
-                                                          false -> {New_transactions, Trans_mining}
-                                                        end,
-          io:format("Number of transections~p~n", [length(New_transactions)]),
-          storage_loop(Blocks, Heads, Remaing_transactions, Mining_transactions);
-        true -> storage_loop(Blocks, Heads, Transactions, Trans_mining)
-      end;
-    {get_previous, Nonce, Sender, Prev_block_id} ->
-      msg_anomaly(Sender,
-                  {previous, Nonce, get_block(Blocks, Prev_block_id)}),
-      storage_loop(Blocks, Heads, Transactions, Trans_mining);
-    {get_head, Sender, Nonce} ->
-      msg_anomaly(Sender, {head, Nonce, get_longest_head(Heads)}),
-      storage_loop(Blocks, Heads, Transactions, Trans_mining)
+get_block(Reply, Blocks, Block_id) ->
+  case get_block_by_id(Blocks, Block_id) of
+    false -> get_previous(Reply, self(), Block_id);
+    Block -> Reply ! {result, Block}
   end.
 
-% This takes a list of nodes and sends a get_head request to every node
-% It returns a list of Nonces
-request_head_all([]) -> [];
-request_head_all([H | T]) ->
-  Nonce = make_ref(),
-  msg_anomaly(H , {get_head, self(), Nonce}),
-  [{head, Nonce} | request_head_all(T)].
+% Keep track of all blocks, drop allows to remove all Blocks and replace them with a new list of Blocks
+block_storage() ->
+  register(block_storage,
+           spawn(fun () -> block_storage([]) end)).
+block_storage(Blocks) ->
+  receive
+    {add, Block} ->
+      New_blocks = case is_new_block(Blocks, Block) of
+                     true -> {_, _, List_of_transaction, _} = Block,
+                             transaction_storage ! {remove, List_of_transaction},
+                             [Block | Blocks];
+                     false -> Blocks
+                   end,
+      block_storage(New_blocks);
+    {drop, New_blocks} -> block_storage(New_blocks);
+    {get_all, Reply} -> Reply ! {result, Blocks}, block_storage(Blocks);
+    {get, Reply, Block_id} -> 
+      get_block(Reply, Blocks, Block_id),
+                              block_storage(Blocks);
+    %Reply for get_previous friends requests
+    {get_previous, Nonce, Sender, Block_id} ->
+      Reply = case get_block_by_id(Blocks, Block_id) of
+                false -> none;
+                Block -> Block
+              end,
+      msg_anomaly(Sender, {previous, Nonce, Reply}),
+      block_storage(Blocks)
+  end.
+
+transaction_storage() ->
+  register(transaction_storage,
+           spawn(fun () -> transaction_storage([], []) end)).
+transaction_storage(Trans, Mining_trans) ->
+  receive
+    {add, T} ->
+      io:format("Add new transaction ~p~n", [T]),
+      N_trans = case is_new_transaction(yield_blocks(), Trans ++ Mining_trans, T) of
+                  true -> % We need to gossip the new Transaction
+                    ?NODE ! {gossip, {push, T}},
+                    [T | Trans];
+                  false -> Trans
+                end,
+      {New_trans, New_mining_trans} = case length(N_trans) > 9 of
+                                        true ->
+                                          {Block_trans, Remaing_trans} = lists:split(10, N_trans),
+                                          mine_block(Block_trans),
+                                          {Remaing_trans, Mining_trans ++ Block_trans};
+                                        false -> {N_trans, Mining_trans}
+                                      end,
+      transaction_storage(New_trans, New_mining_trans);
+    {remove, T} -> transaction_storage(Trans -- T, Mining_trans -- T)
+  end.
+
+% reply with head or request it from an other node if no head is avaible
+get_chain(Reply, Heads) ->
+  case get_longest_head(Heads) of
+    none -> get_head(Reply, self());
+    false -> get_head(Reply, self());
+    Head -> Reply ! {result, Head}
+  end.
+
+head_storage() ->
+  register(head_storage,
+           spawn(fun () -> head_storage([]) end)).
+head_storage(Heads) ->
+  receive
+    {int_add, {Id, Length}} ->
+      io:format("Internal Add Head ~p~n", [Id]),
+      {Old_id, Old_length} = get_longest_head(Heads, {none, 0}),
+      % We need to gossip the new block
+      jsparber_node ! {gossip, {update, yield_block_by_id(Id)}},
+      % We only need to store the longest head
+      New_heads = case Length > Old_length of
+                    true -> [{Id, Length}];
+                    false -> [{Old_id, Old_length}]
+                  end,
+      %TODO: add new Head to block storage
+      io:format("New longest head ~p~n", [New_heads]),
+      head_storage(New_heads);
+    {add, Head} ->
+      io:format("Add new head ~p~n", [Head]),
+      block_storage ! {add, Head},
+      explore_chain(self(), Head),
+      head_storage(Heads);
+    {get_longest, Reply} -> get_chain(Reply, Heads),
+                            head_storage(Heads);
+
+    {get, Reply, Block_id} ->
+      io:format("Return get head~n"),
+      Reply ! {result, get_head_by_id(Heads, Block_id)},
+      head_storage(Heads);
+
+    %Reply for get_head friends requests
+    {get_head, Sender, Nonce} ->
+      % yield_block_by_id could take a way to reply, but shouldn't be a problem
+      This_head = get_longest_head(Heads),
+      This = yield_block_by_id(This_head),
+      io:format("respnded with this head ~p and block ~p~n", [This_head, This]),
+      msg_anomaly(Sender, {head, Nonce, This}),
+      head_storage(Heads)
+  end.
 
 send_all([], _) -> none;
 send_all([H | T], Data) -> msg_anomaly(H , Data), send_all(T, Data).
 
-% Explore every chain to check if we got all blocks now
-explore_all_chains(_, []) -> none;
-explore_all_chains(Blocks, [{Head_id, Length} | T]) ->
-  % Explore onyl heads with missing blocks (where we couldn't get the length)
-  case Length == 0 of
-    true ->
-      % we can ignore the head we are exploring right now
-      explore_chain(Blocks, T, get_block_by_id(Blocks, Head_id));
-    false -> none
-  end,
-  explore_all_chains(Blocks, T).
-
-% Takes 3 arguments Blocks, Heads and new Head
-explore_chain(Blocks, Heads, {Head_id, Prev_head_id, _, _}) ->
-  io:format("Start exploring chain ~p Prev: ~p~n", [Head_id, Prev_head_id]),
-  explore_chain(Blocks, Heads, Head_id, Prev_head_id, 0).
+% Explore chain starting with the new Head
+explore_chain(_, none) -> none;
+explore_chain(Main, {Head_id, Prev_head_id, _, _}) ->
+  spawn(fun () ->
+            io:format("Start exploring chain ~p Prev: ~p~n", [Head_id, Prev_head_id]),
+            explore_chain(Main, Head_id, Prev_head_id, 1)
+        end).
 
 % In case we don't have the explored chain at all (we are hiting none)
-explore_chain(_, _, Head_to_insert, none, Depth) ->
-  storage ! {add_head, {Head_to_insert, Depth}, []};
-
-explore_chain(Blocks, Heads, Head_to_insert, Prev_head_id, Depth) ->
-  case lists:keyfind(Prev_head_id, 1, Heads) of
+explore_chain(Main, Head_to_insert, none, Depth) ->
+  Main ! {int_add, {Head_to_insert, Depth}};
+explore_chain(Main, Head_to_insert, Prev_head_id, Depth) ->
+  case yield_head_by_id(Prev_head_id) of
     {_, Length} ->
       %send new head to storage and the head to replace
-      storage ! {add_head, {Head_to_insert, Depth + Length}, Prev_head_id};
+      Main ! {int_add, {Head_to_insert, Depth + Length}};
     false ->
-      case get_block_by_id(Blocks, Prev_head_id) of
-        % We could remove this block form the Blocks list
-        % I'm not sure if that would imporve performance
+      io:format("No head, looking at old blocks, explore ~p ~n", [Prev_head_id]),
+      case yield_block_by_id(Prev_head_id) of
         {_, Prev_block_id, _, _} ->
-          explore_chain(Blocks, Heads, Head_to_insert, Prev_block_id, Depth + 1);
-        false ->
-          io:format("Need to request block"),
-          %request block
-          storage ! {add_head, {Head_to_insert, 1}, []},
-          jsparber_node ! {request_previous, Prev_head_id}
+          io:format("Go deeper ~p~n", Prev_block_id),
+          explore_chain(Main, Head_to_insert, Prev_block_id, Depth + 1);
+        _ -> io:format("Block with id ~p doesn't exist~n", [Prev_head_id])
+             %Main ! {int_add, failed}
       end
   end.
 
 get_block_by_id(Blocks, Id) ->
-  lists:keyfind(Id, 2, Blocks).
+  lists:keyfind(Id, 1, Blocks).
 
-mine_block({Id, Transactions}) ->
-  io:format("Started mining~n"),
-  Solution = proof_of_work:solve({Id, Transactions}),
-  io:format("Finished mining~n"),
-  storage ! {add_block, {make_ref(), Id, Transactions, Solution}}.
+get_head_by_id(Heads, Id) ->
+  lists:keyfind(Id, 1, Heads).
 
-% Checks if block is new and valid
-check_block(Blocks,
-            {Block_id, Prev_block_id, List_of_transection, Solution}) ->
-  case is_new_block(Blocks, Block_id) of
-    true ->
-      io:format("Check block~p~n", [{Prev_block_id, Solution}]),
-      proof_of_work:check({Prev_block_id, List_of_transection},
-                          Solution);
-    false -> false
-  end;
-check_block(_, _) -> io:format("No valid block, maybe empty chain?~n"), false.
+% Request head by id from head_storage
+% Keep requesting a head till a vaild one is found
+yield_head_by_id(Id) ->
+  head_storage ! {get, self(), Id},
+  receive
+    {result, R} -> R
+  end.
 
+% Request longest head from head_storage
+% Keep requesting a head till a vaild one is found
+yield_longest_head() ->
+  head_storage ! {get_longest, self()},
+  receive
+    {result, timeout} -> io:format("get head timeout"), yield_longest_head();
+    {result, failed} -> io:format("No valid block as head: replying with none"), none;
+    {result, R} -> R
+  end.
+
+% Request all blocks from block_storage
+yield_blocks() ->
+  block_storage ! {get_all, self()},
+  receive
+    {result, R} -> R
+  end.
+
+% Request all blocks from block_storage
+yield_block_by_id(Block_id) ->
+  block_storage ! {get, self(), Block_id},
+  receive
+    {result, timeout} -> yield_block_by_id(Block_id);
+    {result, failed} -> io:format("No valid block: replying with none"), none;
+    {result, R} -> R
+  end.
+
+
+mine_block(Transactions) ->
+  spawn(fun () ->
+            Id = yield_longest_head(),
+            io:format("Started mining~n"),
+            Solution = proof_of_work:solve({Id, Transactions}),
+            io:format("Finished mining~n"),
+            Block_id = make_ref(),
+            head_storage ! {add, {Block_id, Id, Transactions, Solution}}
+        end).
+
+% Checks if block is valid
+check_block({_, Prev_block_id, List_of_transection, Solution}) ->
+  io:format("Check block~p~n", [{Prev_block_id, Solution}]),
+  proof_of_work:check({Prev_block_id, List_of_transection}, Solution).
+
+% Checks if block is new
+is_new_block([], none) -> false;
 is_new_block([], _) -> true;
+is_new_block(Blocks, {Id, _, _, _}) ->
+  io:format("Is new block ~p~n", [Id]),
+  is_new_block(Blocks, Id);
 is_new_block([{Block_id, _, _, _} | T], Id) ->
   if Block_id == Id -> false;
      true -> is_new_block(T, Id)
   end.
 
 % Checks if a transection is new
-check_transection([], _) -> true;
-check_transection([{_, _, List_of_transection, _} | T],
-                  {Trans_id, Payload}) ->
-  case lists:keyfind(Trans_id, 1, List_of_transection) of
-    false -> check_transection(T, {Trans_id, Payload});
-    _ -> true
+is_new_transaction(Blocks, Transactions, T) ->
+  case lists:member(T, Transactions) of
+    false -> is_new_transaction_blocks(Blocks, T);
+    true -> false
   end.
 
-remove_transactions([], _) -> [];
-remove_transactions(Transections, {_, _, List_of_transection, _}) ->
-  Transections -- List_of_transection.
+is_new_transaction_blocks([], _) -> true;
+is_new_transaction_blocks([{_, _, List_of_transection, _} | T],
+                          {Trans_id, Payload}) ->
+  case lists:keyfind(Trans_id, 1, List_of_transection) of
+    false -> is_new_transaction_blocks(T, {Trans_id, Payload});
+    true -> false
+  end.
 
 % Return longest head out of a list of heads of form {Block_id, Length}
 get_longest_head(Heads) ->
@@ -336,7 +405,7 @@ get_longest_head(Heads) ->
   io:format("Longest head ~p~n", [Head_id]),
   Head_id.
 
-get_longest_head([], Max_length) -> Max_length;
+get_longest_head([], Max) -> Max;
 get_longest_head([{Id, Length} | T],
                  {Max_head, Max_length}) ->
   if Length < Max_length ->
@@ -346,17 +415,6 @@ get_longest_head([{Id, Length} | T],
      true ->
        % If equals take the last found
        get_longest_head(T, {Id, Length})
-  end.
-
-get_block([], _) -> none;
-get_block([{Block_id, Prev_block_id,
-            List_of_transection, Solution}
-           | T],
-          Id) ->
-  if Id == Prev_block_id ->
-       {Block_id, Prev_block_id, List_of_transection,
-        Solution};
-     true -> get_block(T, id)
   end.
 
 % Returns a random friend from Nodes or TEACHER_NODE if there are no friends
@@ -376,24 +434,26 @@ add_nodes(New_nodes, Nodes) ->
     length(Nodes) > 3 ->
       Nodes;
     self() /= H ->
-       case lists:member(H, Nodes) of
-         true -> add_nodes(New_nodes -- [H], Nodes);
-         false ->
-           io:format("New node ~p~n", [H]),
-           Self = self(),
-           watch(Self, H),
-           add_nodes(New_nodes -- [H], [H | Nodes])
-       end;
-     true -> add_nodes(New_nodes -- [H], Nodes)
+      case lists:member(H, Nodes) of
+        true -> add_nodes(New_nodes -- [H], Nodes);
+        false ->
+          io:format("New node ~p~n", [H]),
+          Self = self(),
+          watch(Self, H),
+          add_nodes(New_nodes -- [H], [H | Nodes])
+      end;
+    true -> add_nodes(New_nodes -- [H], Nodes)
   end.
 
 main() ->
-  register(jsparber_node, self()),
+
+  register(?NODE, self()),
   %global:register_name(jsparber_node, self()),
   io:format("A new jsparber_node registered~n"),
-  register(storage,
-           spawn(fun () -> storage_loop([], [], [], []) end)),
   friends_loop(),
+  block_storage(),
+  head_storage(),
+  transaction_storage(),
   loop([], []).
 
 %%%%%%%%%%%%%%%% Testing only, do not use! %%%%%%%%%%%%%%%%%%%%
@@ -403,7 +463,7 @@ test_transaction() ->
 
 test() ->
   spawn(fun main/0),
-  sleep(20),
+  sleep(10),
   test_transaction(),
   test_transaction(),
   test_transaction(),
