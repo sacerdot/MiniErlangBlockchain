@@ -124,6 +124,7 @@ nonces_cleaner(Main, Nonces) ->
         end),
   Nonces.
 
+loop() -> loop([], []).
 loop(Nodes, Nonces) ->
   receive
     % Internal communication to keep friends
@@ -456,7 +457,6 @@ add_nodes(New_nodes, Nodes) ->
   end.
 
 main() ->
-
   register(?NODE, self()),
   %global:register_name(jsparber_node, self()),
   io:format("A new jsparber_node registered~n"),
@@ -464,7 +464,7 @@ main() ->
   block_storage(),
   head_storage(),
   transaction_storage(),
-  loop([], []).
+  loop().
 
 %%%%%%%%%%%%%%%% Testing only, do not use! %%%%%%%%%%%%%%%%%%%%
 
