@@ -80,7 +80,8 @@ get_head(Reply, Storage) ->
             receive
               {head, Nonce, none} -> io:format("Got none as a head~n"), Reply ! {result, none};
               {head, Nonce, Block} -> case check_block(Block) of
-                                        true -> Reply ! {result, Block},
+                                        true -> {Head_id, _, _, _} = Block,
+                                          Reply ! {result, Head_id},
                                                 % Add the block also to the head storage
                                                 Storage ! {add, Block};
                                         false -> Reply ! {result, failed}
@@ -317,7 +318,7 @@ explore_chain(Main, Head_to_insert, Prev_head_id, Depth) ->
       io:format("No head, looking at old blocks, explore ~p ~n", [Prev_head_id]),
       case yield_block_by_id(Prev_head_id) of
         {_, Prev_block_id, _, _} ->
-          io:format("Go deeper ~p~n", Prev_block_id),
+          io:format("Go deeper ~p~n", [Prev_block_id]),
           explore_chain(Main, Head_to_insert, Prev_block_id, Depth + 1);
         _ -> io:format("Block with id ~p doesn't exist~n", [Prev_head_id])
              %Main ! {int_add, failed}
