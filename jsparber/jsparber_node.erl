@@ -170,7 +170,6 @@ loop(Nodes, Nonces) ->
 
     % Update Block storage
     {update, Block} ->
-      io:format("Got new head block~n"),
       head_storage ! {add, Block},
       loop(Nodes, Nonces);
 
@@ -267,11 +266,11 @@ head_storage(Heads) ->
                     false -> [{Old_id, Old_length}]
                   end,
       io:format("New longest head ~p~n", [New_heads]),
-      head_storage(New_heads);
+      head_storage([{Id, Length} | Heads]);
     {add, Head} ->
-      io:format("Add new head ~p~n", [Head]),
-      case is_new_head(Heads, Head) of
+      case is_new_block(yield_blocks(), Head) of
         true ->
+      io:format("Add new head ~p~n", [Head]),
       block_storage ! {add, Head},
       explore_chain(self(), Head);
         false -> none
