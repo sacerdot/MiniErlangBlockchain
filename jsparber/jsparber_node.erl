@@ -1,6 +1,10 @@
 -module(jsparber_node).
-
 -export([main/0, test/0, push/1]).
+-on_load(load_externals_modules/0).
+
+load_externals_modules() ->
+    compile:file('proof_of_work.erl'),
+ok.
 
 % This is a blockchain node, based on teacher_node.
 % TODO: Clean up blocks
