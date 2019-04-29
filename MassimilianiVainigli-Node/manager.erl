@@ -1,6 +1,6 @@
 -module(manager).
 -import(support, [get_first_elements/2, send_msg/2]).
--import(blockChain, [mining/3]).
+-import(block_chain, [mining/3]).
 
 -export([manager/7]).
 

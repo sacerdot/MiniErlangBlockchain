@@ -22,7 +22,6 @@ check_nodes(Parent, List_friends, Attempts, List_Nonces) ->
   MyPid = self(),
   %io:format("Sono ~p e ho ~p amici attempts ~p List_nonces ~p ~n", [Parent, List_friends, Attempts, List_Nonces]),
 
-
   %%se mi sono bloccato
   if  (Attempts=:=10) ->
     Ref1 = make_ref(),
@@ -42,6 +41,7 @@ check_nodes(Parent, List_friends, Attempts, List_Nonces) ->
     end;
     true -> ok
   end,
+
 
 
   %% se non ho amici chiedo al teacher_node

@@ -3,11 +3,11 @@
 %%%-------------------------------------------------------------------
 -module(main).
 -author("Lorenzo Massimiliani, Lorenzo Vainigli").
--export([ test/0, test2/0]).
+-export([ test/0, test2/0, test3/0, compile/0]).
 -import(support, [sleep/1, flatten/1, all_elements_are_different/2, get_first_elements/2, index_of_block/2]).
 -import(friends, [check_nodes/4]).
 -import(manager, [manager/7]).
--import(blockChain, [block_chain/3]).
+-import(block_chain, [block_chain/3]).
 
 
 %inizio
@@ -19,6 +19,13 @@ start() ->
   manager(Checker, Chain, 0, [], [], [], [])
 .
 
+compile() ->
+  compile:file('block_chain.erl'),
+  compile:file('friends.erl'),
+  compile:file('manager.erl'),
+  compile:file('support.erl'),
+  compile:file('../teacher_node.erl'),
+  compile:file('../proof_of_work.erl').
 
 test() ->
   spawn(teacher_node, main, []), % teacher node
