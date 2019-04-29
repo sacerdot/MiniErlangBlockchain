@@ -265,13 +265,16 @@ head_storage(Heads) ->
                     true -> [{Id, Length}];
                     false -> [{Old_id, Old_length}]
                   end,
-      %TODO: add new Head to block storage
       io:format("New longest head ~p~n", [New_heads]),
       head_storage(New_heads);
     {add, Head} ->
       io:format("Add new head ~p~n", [Head]),
+      case is_new_head(Heads, Head) of
+        true ->
       block_storage ! {add, Head},
-      explore_chain(self(), Head),
+      explore_chain(self(), Head);
+        false -> none
+      end,
       head_storage(Heads);
     {get_longest, Reply} -> get_chain(Reply, Heads),
                             head_storage(Heads);
@@ -393,6 +396,13 @@ is_new_transaction(Blocks, Transactions, T) ->
   case lists:member(T, Transactions) of
     false -> is_new_transaction_blocks(Blocks, T);
     true -> false
+  end.
+
+% Checks if a head is new
+is_new_head(Heads, {Block_id, _, _, _}) ->
+  case get_head_by_id(Heads, Block_id) of
+    false -> true;
+    _ -> false
   end.
 
 is_new_transaction_blocks([], _) -> true;
