@@ -13,6 +13,7 @@ ok.
 -define(NODE, jsparber_node).
 -define(TEACHER_NODE, {teacher_node, teacher_node@librem}).
 -define(DEAD_TOLERANZ, 0).
+-define(REQUEST_TRIES, 10).
 %Timeout for request in seconds
 -define(TIMEOUT, 2).
 
@@ -320,8 +321,7 @@ explore_chain(Main, Head_to_insert, Prev_head_id, Depth) ->
         {_, Prev_block_id, _, _} ->
           io:format("Go deeper ~p~n", [Prev_block_id]),
           explore_chain(Main, Head_to_insert, Prev_block_id, Depth + 1);
-        _ -> io:format("Block with id ~p doesn't exist~n", [Prev_head_id])
-             %Main ! {int_add, failed}
+        _ -> io:format("Block with id ~p doesn't exist. Drop chain.~n", [Prev_head_id])
       end
   end.
 
@@ -358,13 +358,20 @@ yield_blocks() ->
 
 % Request all blocks from block_storage
 yield_block_by_id(Block_id) ->
+  yield_block_by_id(Block_id, ?REQUEST_TRIES).
+yield_block_by_id(Block_id, Try) ->
   block_storage ! {get, self(), Block_id},
   receive
-    {result, timeout} -> yield_block_by_id(Block_id);
-    {result, failed} -> io:format("No valid block: replying with none"), none;
+    {result, timeout} -> retry(Try, yield_block_by_id(Block_id, Try - 1));
+    {result, failed} -> retry(Try, yield_block_by_id(Block_id, Try - 1));
     {result, R} -> R
   end.
 
+retry(Try, Work) ->
+  case Try =< 0 of
+    true -> none;
+    false -> Work
+  end.
 
 mine_block(Transactions) ->
   spawn(fun () ->
