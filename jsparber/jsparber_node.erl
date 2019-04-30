@@ -12,7 +12,8 @@ ok.
 -define(NODE, jsparber_node).
 -define(TEACHER_NODE, {teacher_node, teacher_node@librem}).
 -define(DEAD_TOLERANZ, 0).
--define(REQUEST_TRIES, 10).
+% Number of tries to request a block from friends
+-define(REQUEST_TRIES, 100).
 %Timeout for request in seconds
 -define(TIMEOUT, 2).
 
@@ -376,7 +377,7 @@ yield_block_by_id(Block_id) ->
 yield_block_by_id(Block_id, Try) ->
   block_storage ! {get, self(), Block_id},
   receive
-    {result, timeout} -> retry(Try, yield_block_by_id(Block_id, Try + 1));
+    {result, timeout} -> yield_block_by_id(Block_id, Try);
     {result, failed} -> retry(Try, yield_block_by_id(Block_id, Try + 1));
     {result, R} -> R
   end.
