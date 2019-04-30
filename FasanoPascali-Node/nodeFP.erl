@@ -1,17 +1,9 @@
-%%%-------------------------------------------------------------------
-%%% @author andrea
-%%% @copyright (C) 2019, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 16. apr 2019 14.43
-%%%-------------------------------------------------------------------
 -module(nodeFP).
--author("andrea").
 -export([init/0, sleep/1]).
 
 sleep(N) -> receive after N * 1000 -> ok end.
 
+%% fa partire tutti gli attori ausiliari
 init() ->
   PID = self(),
   PIDManagerNonce = spawn_link(topologyFP, managerNonce, [[]]),

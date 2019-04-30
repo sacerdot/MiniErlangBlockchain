@@ -1,16 +1,7 @@
-%%%-------------------------------------------------------------------
-%%% @author andrea
-%%% @copyright (C) 2019, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 16. apr 2019 14.58
-%%%-------------------------------------------------------------------
 -module(blockChain).
--author("andrea").
 -export([managerTransactions/4, initManagerBlock/5, initRebuildBlockChain/5, mining/2, managerHead/1]).
 
-%%Blocco= {IDnuovo_blocco,IDblocco_precedente, Lista_di_transazioni, Soluzione}
+%% Blocco = {IDnuovo_blocco,IDblocco_precedente, Lista_di_transazioni, Soluzione}
 
 %% l'attore istanziato su tale funzione gestisce la Pool delle Transazioni e tutte le richieste inerenti ad essa
 managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, TransactionsInBlocks) ->
@@ -84,6 +75,7 @@ rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, InitIndex) 
 initManagerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage) ->
   PIDMining = spawn_link(blockChain, mining, [PIDManagerTransactions, self()]),
   managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, []).
+
 
 managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain) ->
   process_flag(trap_exit, true),
@@ -300,6 +292,7 @@ managerHead(MainPID) ->
   end,
   managerHead(MainPID).
 
+
 getNRandomTransactions(TransactionsChosen, PoolTransactions, N) ->
   case PoolTransactions of
     [] -> TransactionsChosen;
@@ -312,7 +305,7 @@ getNRandomTransactions(TransactionsChosen, PoolTransactions, N) ->
       end
   end.
 
-%%Controlla che nessuna delle transazioni sia contenuta nella BlockChain, rispondendo true se non sono contenute false altrimenti
+%% Controlla che nessuna delle transazioni sia contenuta nella BlockChain, rispondendo true se non sono contenute false altrimenti
 checkTransactionsToBlockChain(_, []) -> true;
 checkTransactionsToBlockChain(Transactions, [H | T]) ->
   case checkListsOfTransactions(Transactions, element(3, H)) of

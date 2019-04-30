@@ -1,13 +1,4 @@
-%%%-------------------------------------------------------------------
-%%% @author andrea
-%%% @copyright (C) 2019, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 16. apr 2019 14.47
-%%%-------------------------------------------------------------------
 -module(testFP).
--author("andrea").
 -export([test1/0, minimalTest/0, testBlockKillPID3/0, sendTransaction/2,
   testMining2PrevNone/0, testGossip1/0, testGossip/0, testFork/0,
   testBlockANDtransactionDouble/0, testNoFollowers/0, testRebuild/0]).
