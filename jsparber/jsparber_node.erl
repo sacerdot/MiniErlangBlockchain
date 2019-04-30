@@ -7,7 +7,6 @@ load_externals_modules() ->
 ok.
 
 % This is a blockchain node, based on teacher_node.
-% TODO: Clean up blocks
 % Currently we need at least one friend to create chain
 
 -define(NODE, jsparber_node).
@@ -205,7 +204,8 @@ block_storage(Blocks) ->
                      false -> Blocks
                    end,
       block_storage(New_blocks);
-    {drop, New_blocks} -> block_storage(New_blocks);
+    {clean, Head_id} -> collect_chain(Head_id), block_storage(Blocks);
+    {replace, New_blocks} -> block_storage(New_blocks);
     {get_all, Reply} -> Reply ! {result, Blocks}, block_storage(Blocks);
     {get, Reply, Block_id} -> 
       get_block(Reply, Blocks, Block_id),
@@ -219,6 +219,18 @@ block_storage(Blocks) ->
       msg_anomaly(Sender, {previous, Nonce, Reply}),
       block_storage(Blocks)
   end.
+
+collect_chain(Head_id) ->
+  spawn(fun() ->
+  collect_chain(Head_id, [])
+        end).
+collect_chain(Head_id, Blocks) ->
+  case yield_block_by_id(Blocks, Head_id) of
+        {Block_id, Prev_block_id, List, Solution} -> collect_chain(Prev_block_id, {Block_id, Prev_block_id, List, Solution} );
+        none -> block_storage ! {replace, Blocks}
+  end.
+
+
 
 transaction_storage() ->
   register(transaction_storage,
@@ -260,11 +272,10 @@ head_storage(Heads) ->
     {int_add, {Id, Length}} ->
       io:format("Internal Add Head ~p~n", [Id]),
       {Old_id, Old_length} = get_longest_head(Heads, {none, 0}),
-      % We need to gossip the new block
-      jsparber_node ! {gossip, {update, yield_block_by_id(Id)}},
       % We only need to store the longest head
       New_heads = case Length > Old_length of
-                    true -> [{Id, Length}];
+                    true -> [{Id, Length}],
+                    block_storage ! {clean, Id};
                     false -> [{Old_id, Old_length}]
                   end,
       io:format("New longest head ~p~n", [New_heads]),
@@ -274,7 +285,9 @@ head_storage(Heads) ->
         true ->
       io:format("Add new head ~p~n", [Head]),
       block_storage ! {add, Head},
-      explore_chain(self(), Head);
+      % We need to gossip the new block
+      jsparber_node ! {gossip, {update, Head}},
+      explore_chain(Head);
         false -> none
       end,
       head_storage(Heads);
@@ -300,8 +313,9 @@ send_all([], _) -> none;
 send_all([H | T], Data) -> msg_anomaly(H , Data), send_all(T, Data).
 
 % Explore chain starting with the new Head
-explore_chain(_, none) -> none;
-explore_chain(Main, {Head_id, Prev_head_id, _, _}) ->
+explore_chain(none) -> none;
+explore_chain({Head_id, Prev_head_id, _, _}) ->
+  Main = self(),
   spawn(fun () ->
             io:format("Start exploring chain ~p Prev: ~p~n", [Head_id, Prev_head_id]),
             explore_chain(Main, Head_id, Prev_head_id, 1)
