@@ -274,8 +274,8 @@ head_storage(Heads) ->
       {Old_id, Old_length} = get_longest_head(Heads, {none, 0}),
       % We only need to store the longest head
       New_heads = case Length > Old_length of
-                    true -> [{Id, Length}],
-                    block_storage ! {clean, Id};
+                    true -> block_storage ! {clean, Id},
+                    [{Id, Length}];
                     false -> [{Old_id, Old_length}]
                   end,
       io:format("New longest head ~p~n", [New_heads]),
@@ -372,17 +372,17 @@ yield_blocks() ->
 
 % Request all blocks from block_storage
 yield_block_by_id(Block_id) ->
-  yield_block_by_id(Block_id, ?REQUEST_TRIES).
+  yield_block_by_id(Block_id, 0).
 yield_block_by_id(Block_id, Try) ->
   block_storage ! {get, self(), Block_id},
   receive
-    {result, timeout} -> retry(Try, yield_block_by_id(Block_id, Try - 1));
-    {result, failed} -> retry(Try, yield_block_by_id(Block_id, Try - 1));
+    {result, timeout} -> retry(Try, yield_block_by_id(Block_id, Try + 1));
+    {result, failed} -> retry(Try, yield_block_by_id(Block_id, Try + 1));
     {result, R} -> R
   end.
 
 retry(Try, Work) ->
-  case Try =< 0 of
+  case Try > ?REQUEST_TRIES of
     true -> none;
     false -> Work
   end.
@@ -414,13 +414,6 @@ is_new_transaction(Blocks, Transactions, T) ->
   case lists:member(T, Transactions) of
     false -> is_new_transaction_blocks(Blocks, T);
     true -> false
-  end.
-
-% Checks if a head is new
-is_new_head(Heads, {Block_id, _, _, _}) ->
-  case get_head_by_id(Heads, Block_id) of
-    false -> true;
-    _ -> false
   end.
 
 is_new_transaction_blocks([], _) -> true;
