@@ -157,7 +157,7 @@ loop(Nodes, Nonces) ->
       {New_nodes, New_nonces} = case lists:member({friends, Nonce}, Nonces) of
                                   true -> {add_nodes(Incomming_nodes, Nodes), Nonces -- [Nonce]};
                                   false -> io:format("INVALID MESSAGE: We got a wrong nonce "
-                                                     "with for friends~n")
+                                                     "with for friends~n"), {Nodes, Nonces}
                                 end,
       loop(New_nodes, New_nonces);
     {dead, Node} ->
