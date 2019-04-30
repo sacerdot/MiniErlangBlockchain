@@ -8,7 +8,11 @@
 load_externals_modules() ->
     compile:file('proof_of_work.erl'), ok.
 
-% This is a blockchain node, based on teacher_node.
+% This is a blockchain node, based on teacher_node written by
+% Julian Sparber (853199),
+% Eduart Uzeir (843961),
+% Domenico Coriale (859415).
+%
 % This node waits till it has at least on friend.
 % It can be run with jsparber_node:main/0, if run with spawn
 % then transactions can be send via jsparber_node:push/1
