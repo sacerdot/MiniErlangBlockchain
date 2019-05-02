@@ -4,7 +4,7 @@
 -export([makeT/1]).
 -record(transaction, {idTransaction, payload}).
 -record(block, {idBlock, idPreviousBlock, transactions, solution}).
--record(head_of_blocks, {head_blockID, leng}).
+-record(head_of_blocks, {head_blockID, leng}).   % una Head è una coppia ID del blocco testa - lunghezza della catena
 
 sleep(N) -> receive after N*1000 -> ok end.
 
@@ -60,21 +60,22 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
                         NewTransactions = lists:subtract(TransactionsList, NewBlock#block.transactions),
                         Friend  = randomFriend(Nodes),  
                         Ref = make_ref(), 
-                        case findBlockGivenId (Blocks, NewBlock#block.idPreviousBlock) of  %if the previous is not none and is missing I ask for previous
+                        case findBlockGivenId (Blocks, NewBlock#block.idPreviousBlock) of  %se il precedente è none aggiungo oltre a blocco una Head di lunghezza 1
                             none -> NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = 1},                                                        
                                     io:format("Head added ~n"),
                                     loop(Nodes, NewTransactions, [NewBlock|Blocks], [NewHead|Heads], Nonces);
-                            notfound->  
+                            notfound->    %se non trovo il blocco precedente lo chiedo
                                     io:format("asking for previous block~n"),                       
-                                    sendMessage (Friend, {get_previous, self(), Ref, NewBlock#block.idPreviousBlock}), % randomFriend(Nodes) ! {get_head, self(), Ref}, 
+                                    sendMessage (Friend, {get_previous, self(), Ref, NewBlock#block.idPreviousBlock}), 
                                     sendMessage (Friend, {get_head, self(), Ref}),
                                     loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, [Ref|Nonces]);        
-                            Y ->   %if the previous block is found
+                            Y ->   %se trovo il blocco presedente:
                                     case findHeadGivenId (Heads, Y#block.idBlock) of
-                                            notfound ->% NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = 1},
+                                            notfound ->%se non è una testa allora chiedo una testa, così sono sicuro di avere la catena più lunga
                                                        sendMessage (Friend, {get_head, self(), Ref}),
                                                        loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, [Ref|Nonces]);
-                                            X ->       NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = X#head_of_blocks.leng + 1},
+                                            X ->       %se il blocco precedente è una testa allora NewBlock diventa la nuova testa
+                                                       NewHead = #head_of_blocks{head_blockID = NewBlock#block.idBlock, leng = X#head_of_blocks.leng + 1},
                                                        UpdatedHeads = Heads -- [X],
                                                        io:format("Head substituted, now length is  ~p~n", [NewHead#head_of_blocks.leng]),
                                                        loop(Nodes, NewTransactions, [NewBlock|Blocks], [NewHead | UpdatedHeads], Nonces)
@@ -110,10 +111,10 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
         Elem = findBlockGivenId(Blocks, PreviousID),
         case Elem  of
         	    notfound -> Ref = make_ref(),
-        	               self() ! {add_nonce, Ref},
+        	               self() ! {add_nonce, Ref}, %se il nodo non ha il blocco che viene richiesto sarà lui stesso a richiederlo agli amici
         	               sendMessage (randomFriend(Nodes), {get_previous, self(), Ref, PreviousID});
-                none     -> ok;
-                X        -> sendMessage(Sender, {previous, Nonce, X})
+              none     -> ok;                       %non ci sono altri blocchi da mandare
+              X        -> sendMessage(Sender, {previous, Nonce, X})   %se trova il blocco lo manda
         end,
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
@@ -135,14 +136,14 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
 
     {get_head, Sender, Nonce} -> 
         ID = maximumLengthHead (Heads, none),
-        Head = case ID of
+        Head = case ID of    %head conterrà il blocco testa della catena più lunga
           none -> findBlockGivenId(Blocks, none);
           Y    -> findBlockGivenId(Blocks, Y#head_of_blocks.head_blockID)
         end,
         case Head of
           none -> none;
           X    -> Sender! {add_head, Nonce, findHeadGivenId(Heads, ID#head_of_blocks.head_blockID)},
-                  sendMessage (Sender, {head, Nonce, X})
+                  sendMessage (Sender, {head, Nonce, X}) %mando oltre al blocco, anche il riferimento alla testa
         end,
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
@@ -185,6 +186,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
         loop (Nodes, NewTransactions, Blocks, Heads, Nonces)
   end.        
 
+%funzione per restituire la testa della catena più lunga. Restituisce una Head e non un blocco
 maximumLengthHead ([], Res) -> Res;
 
 maximumLengthHead ([H|T], Res) ->
@@ -196,6 +198,8 @@ maximumLengthHead ([H|T], Res) ->
                  end
     end.
 
+%trova un blocco in una lista di blocchi dato un certo Id.
+% Se l'Id è none restituisce none, se non trova il blocco restituisce notfound, altrimenti restituisce il blocco
 findBlockGivenId ([], Id) ->
     case Id == none of
       true -> none;
@@ -211,6 +215,9 @@ findBlockGivenId ([H|T], Id) ->
       end
     end.
 
+%data una lista di blocchi restituisce true se il blocco viene trovato (ovvero se viene trovato un blocco con la stessa soluzione)
+%È stato necessario fare questo e non confrontare semplicementi i blocchi perché blochi con stesse transazioni, ID precedente e quindi soluzione 
+%possono avere ID diverso, in quanto frutto di diversi mining. 
 isBlockYet ([], _ ) -> false;
 
 isBlockYet ([H|T], Sol) ->
@@ -223,18 +230,21 @@ isBlockYet ([H|T], Sol) ->
          end
    end.
 
+%Per comunicare le transazioni agli amici
 add_transaction (_, []) -> ok;
 
 add_transaction (Trans, [H|T]) ->
     H ! {push, Trans},
     add_transaction (Trans, T).
 
+%Per comunicare i blocchi agli amici
 comunicate_block (_, []) -> ok;
 
 comunicate_block (Block, [H|T]) ->
     H ! {update, Block},
     comunicate_block (Block, T).
 
+%Vengono aggiunti amici a meno che non se ne abbiano già 3
 addNode(Nodes, []) ->  Nodes;
 
 addNode(Nodes, [H | T]) ->
@@ -255,6 +265,7 @@ addNode(Nodes, [H | T]) ->
           end
   end.
 
+%restituisce una Head (oppure notfound) dato un certo ID
 findHeadGivenId ([], _) ->
     notfound;
 
@@ -293,6 +304,7 @@ mining (MyNode, Transactions, IdPrev) ->
             MyNode ! {ask_transactions, ToMine}
     end.
 
+%restituisce un nodo a caso tra gli amici o il nodo professore nel caso in cui non si abbiano amici
 randomFriend (Nodes) -> 
   case length (Nodes) of 
   	0 -> {teacher_node, teacher@localhost} ;
