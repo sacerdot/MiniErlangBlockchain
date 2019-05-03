@@ -20,9 +20,9 @@ find_transazioni_minate(Transactions_list, Block_transactions) ->
     true -> true
   end.
 
-% Eliminazione delle transazioni contenute nel blocco che stiamo aggiungendo 
+% Eliminazione delle transazioni contenute nel blocco che stiamo aggiungendo
 % alla nostra catena. Se il minatore è morto lo attiviamo togliendo dalla lista
-% le transazioni del blocco. Se il minatore sta minado occorre verificare se 
+% le transazioni del blocco. Se il minatore sta minado occorre verificare se
 % almeno una delle transazioni del blocco è in fase di mining, in questo caso
 % occorre fermare il minatore e riavviarlo con la lista di transazioni
 % aggiornata. La funzione restituisce la nuova lista di transazioni
@@ -31,16 +31,16 @@ safeDeleteTransactions(Transactions_list, Block_transactions, BlockChain, PID) -
     % caso in cui il minatore è morto: eliminazione delle transazioni dalla
     % lista e avvio del minatore
     undefined ->
-      io:format("minatore morto~n"),
+      %io:format("minatore morto~n"),
       miner:call_miner(PID, BlockChain, Transactions_list -- Block_transactions),
       Transactions_list -- Block_transactions;
     % caso in cui il minaore è vivo
     PID_miner ->
-      io:format("minatore vivo~n"),
+      %io:format("minatore vivo~n"),
       case find_transazioni_minate(Transactions_list, Block_transactions) of
         % caso in cui una transazione dal eliminare sta venendo minata
         true ->
-          io:format("minatore da far ripartire~n"),
+          %io:format("minatore da far ripartire~n"),
           exit(PID_miner, kill),
           mainActorCR:sleep(0.5),
           miner:call_miner(PID, BlockChain, Transactions_list -- Block_transactions);
@@ -63,7 +63,7 @@ index_of(ID, [_|Tail], Index) -> index_of(ID, Tail, Index+1).
 % lunga si restituisce true, altrimenti si restituisce l'indice del primo blocco
 % da sostituire
 isLonger(BlockChain, BlocksToAdd_list) ->
-  % recupero il blocco radice della lista ricostruita e, da questo, il blocco in 
+  % recupero il blocco radice della lista ricostruita e, da questo, il blocco in
   % comune alle due liste
   case lists:last(BlocksToAdd_list) of
     % la catena ricostruita termina con none quindi le due catene non hanno un
@@ -71,20 +71,20 @@ isLonger(BlockChain, BlocksToAdd_list) ->
     {_, none, _, _} when length(BlockChain) > length(BlocksToAdd_list) ->
       true;
     % la catena ricostruita termina con none quindi le due catene non hanno un
-    % blocco in comune e la catena ricostruita è più lunga della nostra  
+    % blocco in comune e la catena ricostruita è più lunga della nostra
     {_, none, _, _} ->
       length(BlockChain);
     % la catena ricostruita termina con un blocco. Verifichiamo che questo abbia
     % come predecessore un blocco della nostra catena. Tale blocco è comune alle
-    % due catene 
+    % due catene
     {_, ID_blocco, _, _} ->
       case get_previous_handler:find_BlockE(ID_blocco, BlockChain) of
         % non c'è un blocco in comune -> la nostra catena è più lunga
         false -> true;
-        % troviamo il blocco in comune -> cerchiamo il suo indice e confrontiamo 
+        % troviamo il blocco in comune -> cerchiamo il suo indice e confrontiamo
         % le due lunghezze
-        Block -> 
-          Index = index_of(Block, BlockChain, 1), 
+        Block ->
+          Index = index_of(Block, BlockChain, 1),
           case Index-1 > length(BlocksToAdd_list) of
             % la nostra catena è più lunga
             true -> true;
@@ -129,8 +129,8 @@ rilevato_blocco_sconosciuto(Main_Actor_Pid,Sender,Friends_list,Block,Transaction
     {_, ID_previous_block, Block_transactions, Solution} ->
       case proof_of_work:check({ID_previous_block, Block_transactions}, Solution) of
         % blocco "falso": la verifica ha fallito -> scarto il blocco
-        false -> 
-          io:format("il blocco risulta falso~n"),
+        false ->
+          %io:format("il blocco risulta falso~n"),
           {Transactions_list, BlockChain};
         % la verifica del blocco ha avuto successo:
         %   - invio il blocco al get_previous_handler per vedere se qualcuno
@@ -139,43 +139,43 @@ rilevato_blocco_sconosciuto(Main_Actor_Pid,Sender,Friends_list,Block,Transaction
         %   - si controlla se aggiungere il blocco in coda, scartarlo o se
         %     occorre ricostruire la catena
         true ->
-          io:format("il blocco risulta vero~n"),
+          %io:format("il blocco risulta vero~n"),
           get_previous_handler ! {block_added, Block},
           mainActorCR:sendMessageToAllFriends({update, Main_Actor_Pid, Block}, Friends_list),
-          % Si confronta l'id dell'ultimo blocco della catena con il  
-          % predecessore del blocco arrivato: in caso affermativo si 
+          % Si confronta l'id dell'ultimo blocco della catena con il
+          % predecessore del blocco arrivato: in caso affermativo si
           % aggiunge il blocco in testa alla blockchain, in caso negativo
-          % occorre capire se ricostruire la catena o scartare il blocco 
+          % occorre capire se ricostruire la catena o scartare il blocco
           case mainActorCR:retreive_ID_blocco_testa(BlockChain) =:= ID_previous_block of
             true ->
               % si eliminano dalla lista di transazioni quelle contenute nel
               % blocco da aggiungere e si aggiunge il blocco in testa
-              io:format("il blocco ricevuto si puo' aggiungere in coda~n"),
+              %io:format("il blocco ricevuto si puo' aggiungere in coda~n"),
               New_trList = safeDeleteTransactions(Transactions_list, Block_transactions, BlockChain, Main_Actor_Pid),
               {New_trList, [Block | BlockChain]};
             false ->
               % controllo se l'id_previous_block del blocco che ci è
-              % arrivato è l'id di un blocco della nostra catena o none. In 
+              % arrivato è l'id di un blocco della nostra catena o none. In
               % caso affermativo il blocco arrivato è da scartare, in
               % caso negativo occorre ricostruire la catena
-              io:format("il blocco ricevuto non si puo' aggiungere in coda~n"),
+              %io:format("il blocco ricevuto non si puo' aggiungere in coda~n"),
               case (ID_previous_block =/= none) and (length([ID_block || {ID_block,_,_,_} <- BlockChain, ID_block =:= ID_previous_block]) =:= 0) of
                 % blocco da scartare
                 false ->
-                  io:format("il blocco e' da scartare~n"),
+                  %io:format("il blocco e' da scartare~n"),
                   {Transactions_list, BlockChain};
                 % ricostruzione catena: si delega un attore per la ricostruzione
                 true ->
-                  io:format("ricostruzione catena in corso...~n"),
+                  %io:format("ricostruzione catena in corso...~n"),
                   P = spawn(fun() -> main_attore_ricostruzione_catena(Main_Actor_Pid, Sender, Block, BlockChain) end),
                   register(prova, P),
-                  io:format("prova ~p created~n", [P]),
+                  %io:format("prova ~p created~n", [P]),
                   {Transactions_list, BlockChain}
               end
           end
       end;
     _ ->
-      io:format("il blocco risulta falso~n"),
+      %io:format("il blocco risulta falso~n"),
       {Transactions_list, BlockChain}
   end.
 
@@ -189,13 +189,13 @@ sendReceivePreviousMessages(Sender, BlockChain, BlocksToAdd_list) ->
   {_, ID_blocco_sconosciuto, _, _} = lists:last(BlocksToAdd_list),
   Nonce = make_ref(),
   Sender ! {get_previous, self(), Nonce, ID_blocco_sconosciuto},
-  io:format("Processo ~p in attesa del blocco sconosciuto...~n", [self()]),
+  %io:format("Processo ~p in attesa del blocco sconosciuto...~n", [self()]),
   % si attende di ricevere il blocco in questione
   receive
     {previous, _, {ID_block, ID_previous_block, Block_transactions, Solution}} ->
       % si verifica di aver ricevuto il blocco corretto che si stava aspettando
       case (proof_of_work:check({ID_previous_block, Block_transactions}, Solution)) and (ID_block =:= ID_blocco_sconosciuto) of
-        % se si riceve un blocco non corretto si scarta l'intera catena che si 
+        % se si riceve un blocco non corretto si scarta l'intera catena che si
         % sta ricostruendo
         false -> [];
         % il blocco è quello corretto. Lo si invia al get_previous_handler. Si
@@ -221,7 +221,7 @@ sendReceivePreviousMessages(Sender, BlockChain, BlocksToAdd_list) ->
 main_attore_ricostruzione_catena(PID_attore_principale, Sender, Block, BlockChain) ->
   % ricostruzione catena
   BlocksToAdd_list = sendReceivePreviousMessages(Sender, BlockChain, [Block]),
-  io:format("Catena ricostruita:~n~p~n", [BlocksToAdd_list]),
+  %io:format("Catena ricostruita:~n~p~n", [BlocksToAdd_list]),
   % verifica lunghezza catena ricostruita. Se è 0 significa che la ricostruzione
   % è fallita, quindi si termina senza fare nulla. In caso contrario si invia la
   % catena all'attore principale
