@@ -90,6 +90,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                     io:format("[~p] - UPDATE_B: Blocco gia' presente... non faccio nulla!~n", [self()]),
                     loop(Friends, TToMine, TMined, Chain, Mining);
                 false->
+                    %io:format("[~p] - UPDATE_B: Controllo se il blocco e' corretto!~n", [self()]),
                     % verifico se il blocco è corretto
                     case checkBlock(Block) of
                         true ->
@@ -97,23 +98,26 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                             io:format("[~p] - UPDATE_B: Invio il blocco agli amici!~n", [self()]),
                             spawn(fun() -> sendBlockToFriends(Block, Friends) end),
 
-                            % chiamo l'algoritmo di ricostruzione della catena
-                            io:format("[~p] - UPDATE_B: Chiamo l'algoritmo di ricostruzione della catena!~n", [self()]),
-
                             try
+                                % chiamo l'algoritmo di ricostruzione della catena
+                                io:format("[~p] - UPDATE_B: Chiamo l'algoritmo di ricostruzione della catena!~n", [self()]),
                                 chain_reconstruction(Block, Chain, Sender, Friends)
                             catch
                                 % blocco scartato per qualche motivo, non faccio nulla
                                 discard ->
                                     loop(Friends, TToMine, TMined, Chain, Mining);
 
+                                % ricevuta nuova catena e nuove TMined
                                 {NewChain, NewTransactions} ->
+                                    io:format("[~p] - CHAIN_RECONSTRUCTION: Ho ricevuto una nuova catena e nuove TMined... aggiorno la mia visione!~n", [self()]),
                                     % se il miner stava lavorando lo killo
                                     case Mining of
-                                        none -> continue;
+                                        none ->
+                                            continue;
                                         _ ->
-                                            io:format("[~p] - KILL: Killo il miner!~n", [self()]),
-                                            exit(Mining, kill)
+                                            io:format("[~p] - KILL_MINER: Il miner stava lavorando... lo killo!~n", [self()]),
+                                            exit(Mining, kill),
+                                            self() ! {miner_ready}
                                     end,
                                     TMinedNew = NewTransactions ++ TMined,
                                     TToMineNew = TToMine -- TMinedNew,
@@ -150,6 +154,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
         % ho terminato il mining di un nuovo blocco, lo invio a tutti gli amici, ripristino il miner
         % e aggiorno la mia visione della catena
         {block_mined, Block} ->
+            % ha finito di minare un blocco, vuol dire che è di nuovo pronto
             self() ! {miner_ready},
             {_,IDPreviousBlock,TransactionsMined,_} = Block,
 
@@ -228,8 +233,6 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
 
         {getC} ->
             io:format("[~p] - CATENA : ~p~n~n~n", [self(), Chain])
-
-
     end.
 
 
@@ -394,6 +397,7 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
     % la mia catena è vuota, allora questo blocco ricevuto costituirà la nuova catena
     case length(Chain) =:= 0 of
         true ->
+            io:format("[~p] - CHAIN_RECONSTRUCTION: La mia catena e' vuota, questo blocco ricevuto diventa la mia nuova catena!~n", [self()]),
             throw( {[Block],TInBlock} );
         false ->
             continue
@@ -404,7 +408,8 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
     [{IDBlock,_,_,_}|_] = Chain,
     case IDPreviousBlock=:=IDBlock of
         true ->
-          throw( {[Block]++Chain, TInBlock} );
+            io:format("[~p] - CHAIN_RECONSTRUCTION: Blocco ricevuto punta alla testa della mia catena... lo aggiungo!~n", [self()]),
+            throw( {[Block]++Chain, TInBlock} );
         false -> continue
     end,
 
@@ -413,9 +418,11 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
         none ->
             % il blocco precedente non è stato trovato nella mia catena,
             % vado a cercarlo tra quelle degli amici o del sender
+            io:format("[~p] - CHAIN_RECONSTRUCTION: Previous del blocco ricevuto non trovato nella mia catena... cerco in quelle di Sender/Friends!~n", [self()]),
             searchBlockOthers([], IDPreviousBlock, Chain, Sender, Friends--[Sender]);
         _ ->
             % il padre del blocco ricevuto è già presente nella catena (e ha altri blocchi collegati), viene quindi scartato
+            io:format("[~p] - CHAIN_RECONSTRUCTION: Previous di blocco ricevuto trovato nella mia catena ma non e' la testa... blocco ricevuto scartato!~n", [self()]),
             throw(discard)
     end.
 
@@ -425,14 +432,17 @@ searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
     case IDPreviousBlock of
         % ho scorso tutta la catena dell'amico, quindi devo decidere quale delle due accettare
         none ->
+            io:format("[~p] - CR_SEARCH_PREV_OTHERS: Scorso tutta la catena dell'amico... decidere se accettare catena mia o di friend!~n", [self()]),
             case length(MyChain) >= length(OtherChain++[Block]) of
                 % la mia catena è almeno uguale all'altra, quindi scarto il blocco
                 true ->
+                    io:format("[~p] - CR_SEARCH_PREV_OTHERS: My Chain piu' lunga dell'altra... blocco ricevuto scartato!~n", [self()]),
                     throw(discard);
                 % la catena dell'amico è più grande, allora diventa la mia nuova catena
                 false ->
+                    io:format("[~p] - CR_SEARCH_PREV_OTHERS: My chain piu' piccola dell'altra... accetto Other Chain!~n", [self()]),
                     NewTransactions = lists:flatmap(fun(A) -> {_,_,X,_}=A, X end, OtherChain++[Block]),
-                    throw({OtherChain, NewTransactions})
+                    throw({OtherChain++[Block], NewTransactions})
             end;
         _ -> continue
     end,
@@ -441,17 +451,17 @@ searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
     %   * se non c'è vuol dire che non c'è una biforcazione
     %   * se c'è vuol dire che abbiamo trovato una biforcazione
     case searchBlock(IDBlock, MyChain) of
-
         % l'ID del blocco ricevuto non è nella mia catena quindi chiedo al Sender o agli amici
         none ->
             % searchPrevious cerca tra le catene degli amici il blocco a cui punta il blocco ricevuto
             % se non lo trova allora lo scarta
-            {_,IDPrev,_,_} = Block,
-            Prev = searchPrevious(IDPrev, [Sender]++Friends),
+            io:format("[~p] - CR_SEARCH_PREV_OTHERS(ciclo): Block non trovato in My chain... cerco previous dall'amico!~n", [self()]),
+            Prev = searchPrevious(IDPreviousBlock, [Sender]++Friends),
             searchBlockOthers(OtherChain++[Prev], Prev, MyChain, Sender, Friends);
 
         % nell'iterazione sono arrivato ad un blocco in comune quindi ho una biforcazione
         CommonBlock ->
+            io:format("[~p] - CR_SEARCH_PREV_OTHERS(ciclo): Trovata biforcazione!~n", [self()]),
             % indice nella mia catena del blocco in comune
             IndexCommonBlockInMyChain = blockIndex(CommonBlock, MyChain, 1),
             CommonChain = lists:nthtail(IndexCommonBlockInMyChain-1, MyChain),
@@ -478,7 +488,9 @@ searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
 
 % caso base, ho finito gli amici a cui chiedere e non ho trovato il precedente,
 % il blocco ricevuto viene scartato
-searchPrevious(_,[]) -> throw(discard);
+searchPrevious(_,[]) ->
+    io:format("[~p] - CR_SEARCH_PREVIOUS(ciclo): Finito la lista di amici... scarto il blocco ricevuto!~n", [self()]),
+    throw(discard);
 
 % vedo se il Sender o gli amici hanno il blocco a cui punta il blocco ricevuto
 searchPrevious(IDPreviousBlock, Friends) ->
@@ -488,15 +500,17 @@ searchPrevious(IDPreviousBlock, Friends) ->
     %Friend ! {get_previous, self(), Nonce, IDPreviousBlock},
     receive
         {previous, Nonce, Block} ->
+            io:format("[~p] - CR_SEARCH_PREVIOUS(ciclo): Ricevuto blocco precedente... verifico correttezza e restituisco!~n", [self()]),
             case checkBlock(Block) of
                 % se il blocco ricevuto è valido lo restituisco
                 true -> Block;
-                % il blocco non è valido quindi chiedo ad un altro amico
+                 % il blocco non è valido quindi chiedo ad un altro amico
                 false -> searchPrevious(IDPreviousBlock,Friends--[Friend])
             end
     after
         % se non ricevo risposta da un tot di tempo allora chiedo ad un altro amico
         ?TIMEOUT ->
+            io:format("[~p] - CR_SEARCH_PREVIOUS(ciclo): Friend non risponde... chiedo a un altro amico!~n", [self()]),
             searchPrevious(IDPreviousBlock,Friends--[Friend])
     end.
 
@@ -527,11 +541,14 @@ commonTransactionsVerify(CommonChain, OtherChain) ->
 sendMessage(Receiver, Msg) ->
     case rand:uniform(10) of
         1 ->
+            %io:format("SEND_MSG: Inviati 2 messaggi!~n"),
             Receiver ! Msg,
             Receiver ! Msg;
         2 ->
+            %io:format("SEND_MSG: Messaggio perso!~n"),
             nothing;
         _ ->
+            %io:format("SEND_MSG: Messaggio inviato normalmente!~n"),
             Receiver ! Msg
     end.
 
@@ -560,7 +577,7 @@ main() ->
     N3 = spawn(node, start, []),
     N4 = spawn(node, start, []),
 
-
+    sleep(10),
     io:format("~n~n1. PUSHO 4 TRANSAZIONI!~n"),
     N1 ! {push, {make_ref(), "ciao1"}},
     N1 ! {push, {make_ref(), "ciao2"}},
