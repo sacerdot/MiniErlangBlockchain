@@ -22,8 +22,25 @@
 
 -record(state, {numberOfNotEnoughFriendRequest, chain, transactionPool, currentChainLength, activeMiner, updateInAnalysis}).
 
-%utilizzata per lanciare un nuovo nodo
-launchNode() -> spawn(?MODULE, initializeNode, []).
+spawnNode() ->
+    spawn(fun() -> initializeNode() end).
+
+% utilizzata per monitorare il nodo in maniera tale da ripristinarlo in casa per un qualche errore vada "down"
+nodeMonitor(NodePID) ->
+    MonitorRef = erlang:monitor(process, NodePID),
+    receive
+        {'DOWN', MonitorRef, process, NodePID, _} ->
+            erlang:demonitor(MonitorRef),
+            NewNodePID = spawnNode(),
+            io:format("Dead node ~p; restarted as ~p \n",[NodePID, NewNodePID]),
+            nodeMonitor(NewNodePID)
+    end.
+
+% utilizzata per lanciare un nuovo nodo e il monitor per esso
+launchNode() -> 
+    NodePID = spawnNode(),
+    spawn(fun() -> nodeMonitor(NodePID) end),
+    NodePID.
 
 %utilizzata per inizializzare un nuovo nodo, in particolare:
 % - initializza lo stato del nuovo nodo
@@ -729,29 +746,46 @@ printChainAndList(Chain, StartStringsList, ActorPID) ->
 test_nodes() ->
     _T = spawn(teacher_node, main, []),
 	sleep(1),
-    NodeList0 = launchNNode(10, []),
+    NodeList0 = launchNNode(8, []),
     sleep(2),
     spawn(fun () -> sendTransactions(NodeList0, 0) end),
-    
-    sleep(rand:uniform(5)),
 
+    sleep(rand:uniform(5)),
     PIDNodeToKill1 = lists:nth(rand:uniform(length(NodeList0)), NodeList0),
     exit(PIDNodeToKill1, manually_kill),
-    NodeList1 = NodeList0 -- [PIDNodeToKill1], 
+    NodeList1 = NodeList0 -- [PIDNodeToKill1],
 
     sleep(rand:uniform(10)),    
-
     PIDNodeToKill2 = lists:nth(rand:uniform(length(NodeList1)), NodeList1),
     exit(PIDNodeToKill2, manually_kill),
     NodeList2 = NodeList1 -- [PIDNodeToKill2],
     
     sleep(rand:uniform(20)),
-
     PIDNodeToKill3 = lists:nth(rand:uniform(length(NodeList2)), NodeList2),
     exit(PIDNodeToKill3, manually_kill),
     NodeList = NodeList2 -- [PIDNodeToKill3],
-    
-    sleep(240),
+
+    %sleep(rand:uniform(10)),
+    %PIDNodeToKill4 = lists:nth(rand:uniform(length(NodeList)), NodeList),
+    %WrongList = {1, 2},
+    %io:format("Trying to kill node ~p with block ~p \n",[PIDNodeToKill4, WrongList]),
+    %PIDNodeToKill4 ! {friendsAdded, WrongList},
+
+    %sleep(rand:uniform(10)),
+    %PIDNodeToKill5 = lists:nth(rand:uniform(length(NodeList)), NodeList),
+    %WrongTransaction = [1,2],
+    %io:format("Trying to kill node ~p with block ~p \n",[PIDNodeToKill5, WrongTransaction]),
+    %PIDNodeToKill5 ! {transactionNotInTheChain, WrongTransaction},
+
+    %sleep(rand:uniform(10)),
+    %Nonce2 = make_ref(),
+    %global:send(teacher_node, {get_friends, self(), Nonce2}),
+    %receive
+    %    {friends, Nonce2, SecondNodeList} ->
+    %        io:format("Teacher list: ~p \n",[SecondNodeList])
+    %end,
+
+    sleep(60),
     [N ! {print_chain} || N <- NodeList],
     sleep(15),
     test_launched.
@@ -761,7 +795,7 @@ launchNNode(0, NodeList) ->
 launchNNode(N, NodeList) ->
     launchNNode(N-1, NodeList ++ [launchNode()]).
 
-sendTransactions(_, 200) ->
+sendTransactions(_, 20) ->
     nothingToDo;
 sendTransactions(NodeList, I) ->
     lists:nth(rand:uniform(length(NodeList)), NodeList) ! {push, {make_ref(), list_to_atom("Transazione" ++ integer_to_list(I))}},
