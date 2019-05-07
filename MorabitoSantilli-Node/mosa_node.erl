@@ -29,18 +29,16 @@ loop(MyListFriends,TransactionsList,MyChain) ->
 	% Nel caso in cui è vuota chiedo al teacher_node di darmene uno
 	% Altrimenti chiedo ad uno la sua lista di amci 
 	
-	case length(MyListFriends) =:= 0 of
-		true 	-> 	
-				global:send(teacher_node,{get_friends,self(),make_ref});
-		false ->
-				askToFriend(MyListFriends)
-				
+	case MyListFriends of
+		[] ->  global:send(teacher_node,{get_friends,self(),make_ref()});
+			   
+		_ ->   askToFriend(MyListFriends)
+			   
 	end,
 
 	% Mi metto in ascolto dei messaggi in arrivo
 	receive
 		{ping, Mittente, Nonce} -> 
-			io:format("~p Received ping request! Send pong response ~n ~n",[self()]),			
 			sendMsg(Mittente,{pong, Nonce}),
 			loop(MyListFriends,TransactionsList,MyChain);
 
@@ -51,18 +49,21 @@ loop(MyListFriends,TransactionsList,MyChain) ->
 			loop(UpdatedList,TransactionsList,MyChain);
 
 		{friends, Nonce, ListOtherFriends} ->
-			io:format("~p Receive friend list ~p ~p ~n ~n",[self(),ListOtherFriends,Nonce]),
 
 			% Trovo una lista di amici dall'elenco degli amici ricevuta (escludendo me e gli amici già presenti)
-            NewFriends = ListOtherFriends --  (MyListFriends ++ [self()]),
-            
-            % Aggiorno la mia lista			
-            MyNewListFriends = addFriend(MyListFriends, NewFriends),
-			
-            loop(MyNewListFriends,TransactionsList,MyChain);
+            % Aggiorno la mia lista	
+			NewFriends = ListOtherFriends -- (MyListFriends ++ [self()]),
+
+			case NewFriends of
+
+				[] -> global:send(teacher_node,{get_friends,self(),make_ref()}),
+					  loop(MyListFriends,TransactionsList,MyChain);
+
+				_ -> MyNewListFriends = addFriend(MyListFriends, NewFriends),
+					 loop(MyNewListFriends,TransactionsList,MyChain)
+			end;		
 
 		{get_friends, Sender, Nonce} ->
-			io:format("~p Send friend list to ~p ~n ~n",[self(),Sender]),
 			Mess = {friends, Nonce, MyListFriends},
 			sendMsg(Sender, Mess),
             loop(MyListFriends,TransactionsList,MyChain);
@@ -71,50 +72,49 @@ loop(MyListFriends,TransactionsList,MyChain) ->
 
         % Gossiping di una  Transazione = {IDtransazione, Payload}
         {push, Transazione} ->
-        	io:format(" Questa è la transazione: ~p ~n~n",[Transazione]),
         	case lists:member(Transazione, TransactionsList) of
-        		true -> loop(MyListFriends,TransactionsList,MyChain); %Se la transazione è gia presente nella mia lista
-        		false -> 
+        		true -> TransactionsList,  %Se la transazione è gia presente nella mia lista
+                        loop(MyListFriends, TransactionsList, MyChain);
+				false -> 
+
+					%Controllo che la transazione non sia presente nella catena 
+					SearchT = searchTransactionInTheChain(Transazione,MyChain),
 					
-					TList = TransactionsList ++ [Transazione],
+					case SearchT of
+						true -> TList = TransactionsList -- [Transazione];
+					
+						false ->TList = TransactionsList ++ [Transazione]
+					end,
 
-					io:format("This is the transaction list of ~p: ~p ~n~n",[self(),TList]),
-        			% Mando la transazione a tutti i miei amici
+					% Mando la transazione a tutti i miei amici
         			Mess = {push, Transazione},
-
         			sendMsgToList(MyListFriends, Mess),
 
-        			% Controllo la dimensione della lista delle Transazioni
-        			% Nel caso in cui comprenda 10 transazioni creo un nuovo blocco
-        			% Altrimenti posso andare avanti
-        			case length(TList) =:= 6 of
-        				true -> 
-        					io:format("Transactions list of ~p is full! Creation new Block ~n ~n",[self()]),
-        					
-        					case MyChain of
-        						[] -> 
-									Soluzione = proof_of_work:solve({none, TList}),
-        							NewBlock = {make_ref(), none, TList, Soluzione};
+        			%Scelgo random se minare o no la lista di transizioni 
+        			case rand:uniform(2) of
+        				1 when length(TList) > 0 -> 
+							% Se decido di minare controllo che la lista sia minore di 10 
+        					case length(TList) < 10  of 
+								true -> Result = mineTransactions(TList,MyChain),
+        								MessBlock = {update, self(), Result},
+    									sendMsgToList(MyListFriends, MessBlock),
+										Chain = MyChain ++ [Result],
+										loop(MyListFriends, [], Chain);
 
-								_ ->
-        							% Prendo la testa della mia catena
-        							{Id, Prev, _, _} = lists:last(MyChain),
-									Soluzione = proof_of_work:solve({Prev, TList}),
-        							NewBlock = {make_ref(), Id, TList, Soluzione}
-        					end,
+								% Se è maggiore di 10 creo una sottolista
+								false -> Trans_List = lists:sublist(TList,10),
+										 Result = mineTransactions(Trans_List,MyChain),
+										 MessBlock = {update, self(), Result},
+    									 sendMsgToList(MyListFriends, MessBlock),
+										 Chain = MyChain ++ [Result],
+										 loop(MyListFriends, TList -- [Trans_List], Chain)
+										 
+   							end;
 
-        					MessBlock = {update, self(), NewBlock},
-        					sendMsgToList(MyListFriends, MessBlock),
+						1 when length(TList) =< 0 -> loop(MyListFriends,[],MyChain);
 
-        					% Aggiorno la mia catena 
-        					Chain = MyChain ++ [NewBlock],
-							io:format("Chain of ~p is : ~p ~n~n",[self(),Chain]),
-
-        					% Mi rimetto in ascolto dei messaggi che arrivano con una nuova lista di transazioni
-        					loop(MyListFriends, [], Chain);
-
-        				false -> 	io:format("-------- ~p Successful insertion Transaction and list is ~p ~n~n",[self(),TList]),
-        							loop(MyListFriends, TList, MyChain)
+        				2 ->% Se decido di non minare la lista aggiungo la transazione alla lista   
+							 loop(MyListFriends, TransactionsList ++ [Transazione], MyChain)
 
 
         			end
@@ -122,26 +122,53 @@ loop(MyListFriends,TransactionsList,MyChain) ->
 			
         % Gossiping di un  Blocco = {IDnuovo_blocco, IDblocco_precedente, Lista_di_amici, Soluzione}
         {update, Sender, Blocco} ->
-
-			  	{IDnuovo_blocco, IDblocco_precedente, Lista_di_transazioni, Soluzione} = Blocco,
-
-				io:format("Sender: ~p and ID_nuovo_blocco: ~p ~n~n" , [Sender,IDnuovo_blocco]),
+        	{IDnuovo_blocco, IDblocco_precedente, Lista_di_transazioni, Soluzione} = Blocco,
 
         	case lists:member(Blocco, MyChain) of % Controllo che il blocco da minare non sia gia presente nella mia catena
-        		true -> io:format("Block already in chain ~n~n");
+        		true -> loop(MyListFriends, TransactionsList, MyChain);
         		false ->
-        			case proof_of_work:check({IDblocco_precedente, Lista_di_transazioni}, Soluzione) of
+        			case proof_of_work:check({IDblocco_precedente, Lista_di_transazioni}, Soluzione) of % Controllo che il blocco possa essere inserito nella catena
         				true ->
-        					io:format("Block can be added to the chain of ~p ~n~n",[self()]),
-        					% ricostruzione catena chiedendo al sender
+        					%io:format("Block ~p from ~p to the chain ~p of ~p ~n",[Blocco,Sender,MyChain,self()]),
 
-        					Chain = MyChain ++ [Blocco],
+							% Controllo che nessuna transazione del blocco arrivato sia già presente nella mia catena e
+							% nel caso ci sia non accetto il blocco
+							TNotMined =  searchOtherTransactionInTheChain(Lista_di_transazioni,MyChain),
 
-        					% Mi rimetto in ascolto di messaggi con la lista di transazioni aggiornata
-        					loop(MyListFriends, [], Chain);
+							case TNotMined of 
 
-        				false -> 	io:format("Block already in the chain ~n~n"),
-        							loop(MyListFriends, TransactionsList, MyChain)
+								true ->% io:format("~p TNotMined ~p ~n~n",[self(),TNotMined]),
+								 	  loop(MyListFriends,TransactionsList,MyChain);
+								
+							    false -> %io:format("~p Vuota ~n~n",[self()]),
+									  % Aggiorno la mia catena
+									  Chain = MyChain ++ [Blocco],
+									  
+									  % Ricostruzione catena
+									  % Se la mia catena ha un solo blocco
+									  case length(Chain) =:= 1 of
+											true -> 
+											% Se ho solo un blocco ed l'ID del blocco precedente è uguale a none la catena è composta da un solo blocco
+											% Altrimenti bisogna ricostruire la catena chiedendo al sender la sua
+												case IDblocco_precedente =:= none of
+													true -> %io:format(" First Block ~p of the chain of ~p added ---- ~p ~p ~n",[Blocco,self(),IDnuovo_blocco,Sender]);
+															nothing_to_do;
+													false ->
+														Nonce = make_ref(),
+														Mess = {get_previous, self(), Nonce, IDblocco_precedente},
+														% Chiedo ad uno dei miei amici il blocco precedente
+														sendMsg(lists:nth(rand:uniform(length(MyListFriends)), MyListFriends), Mess)
+												end;
+
+											false -> nothing_to_do										 												
+									  end,
+
+									  % Mi rimetto in ascolto di messaggi con la lista di transazioni aggiornata
+									  loop(MyListFriends,TransactionsList -- [Lista_di_transazioni], Chain)
+								 
+							end;	
+
+        				false -> 	loop(MyListFriends, TransactionsList, MyChain)
         			end
         	end;
 
@@ -157,15 +184,22 @@ loop(MyListFriends,TransactionsList,MyChain) ->
         	loop(MyListFriends, TransactionsList, MyChain);
 
         {previous, Nonce, Blocco} -> 
-        	{Id_block, _, _, _} = Blocco,
-        	io:format("Get previous Block of ~p ~p ~n", [Id_block,Nonce]),
+        	{Id_block, Id_prev, _, _} = Blocco,
+        	io:format("Receive previous Block ~p ~n", Id_block),
 
-        	[ _ | Blocco] = MyChain ,
+            [_ | Blocco] = MyChain,
+            io:format("Previous Block added ~n"),
 
+            case Id_prev =:= none of
+                true -> io:format("Chain of ~p complete ~n",[self()]);
+                false ->
+                    Mess = {get_previous, self(), Nonce, Id_prev},
+                    sendMsg(lists:nth(rand:uniform(length(MyListFriends)), MyListFriends), Mess)
+            end,
         	loop(MyListFriends, TransactionsList, MyChain);
 
         {get_head, Mittente, Nonce} -> 
-        	io:format("Send the head of chain of ~p ~n ~n",[self()]),
+        	%io:format("Send the head of chain of ~p ~n ~n",[self()]),
 
         	Mess = {head, Nonce, lists:last(MyChain)},
         	sendMsg(Mittente, Mess),
@@ -174,7 +208,7 @@ loop(MyListFriends,TransactionsList,MyChain) ->
         	loop(MyListFriends, TransactionsList, MyChain);
 
         {head, Nonce, Blocco} ->
-        	io:format("Get head of the Block ~p of process ~p ~n ~n",[Blocco,self()]),
+        	%io:format("Get head of the Block ~p of process ~p -> Nonce : ~p ~n ~n",[Blocco,self(),Nonce]),
 
         	[Blocco | _ ] = MyChain,
 
@@ -183,8 +217,11 @@ loop(MyListFriends,TransactionsList,MyChain) ->
 		{printT,NameNode} -> io:format("Transaction List of ~p : ~p ~n~n",[NameNode,TransactionsList]),
 							loop(MyListFriends,TransactionsList,MyChain);
 
-		{printC,NameNode} -> io:format("~p) Chain of ~p : ~p ~n~n",[NameNode,self(),MyChain]),
-							 loop(MyListFriends,TransactionsList,MyChain)
+		{printC,NameNode} -> io:format("~p) Chain of ~p :~n ~p ~n~n",[NameNode,self(),MyChain]),
+							 loop(MyListFriends,TransactionsList,MyChain);
+
+		{printF,NameNode} -> io:format("Friends List of ~p : ~p ~n ~n",[NameNode,MyListFriends]),
+							 loop(MyListFriends,TransactionsList,MyChain)				
 
 			
 	end.
@@ -193,43 +230,45 @@ loop(MyListFriends,TransactionsList,MyChain) ->
 % Chiedo ad un amico casuale la sua lista di amici
 
 askToFriend(MyListFriends) ->
-	
-	case length(MyListFriends) < ?MaxNumberOfFriends of
-		true ->	io:format("~p Require list friends to a random friend of this ~p ~n ~n",[self(),MyListFriends]),
+		
+	Length = length(MyListFriends),
 
+	case Length < ?MaxNumberOfFriends of
+		true ->	
 				Mess = {get_friends, self(), make_ref()},
 				Friend = lists:nth(rand:uniform(length(MyListFriends)), MyListFriends),
 				sendMsg(Friend, Mess);
 				
-		false -> io:format("~p Have already three friends ~n ~n",[self()]),
-				 nothing_to_do
+		false -> MyListFriends
 	end.
 
-% Aggiungo un amico alla mia lista
-addFriend(MyListFriends, []) -> MyListFriends;
 
+% Aggiungo un amico alla mia lista
 addFriend(MyListFriends, NewFriends) ->
 	
 	case length(MyListFriends) < ?MaxNumberOfFriends of
-		true ->
+		
+        true -> case NewFriends of
+                				
+					[] ->   MyListFriends;
+                
+           			_ ->    Friend = lists:nth(rand:uniform(length(NewFriends)), NewFriends),
 
-			Friend = lists:nth(rand:uniform(length(NewFriends)), NewFriends),
-			Self = self(),
-			spawn(fun () -> watch(Self, Friend) end),
-			addFriend(MyListFriends ++ [Friend], NewFriends -- [Friend]);		
-
-		false ->io:format("List of ~p friends is full ~p ~n ~n",[self(),length(MyListFriends)])
-end.
+        					spawn(fun () -> watch(self(), Friend) end),
+        					addFriend(MyListFriends ++ [Friend], NewFriends -- [Friend])
+       			end;
+        false -> MyListFriends
+						
+	end.
 
 
 sendMsg(Sender, Msg) ->
-			io:format("Send message to ~p ~n~n",[Sender]),
 			case rand:uniform(10) of 
-				1 ->io:format("Messaggio di ~p perso ~n~n",[self()]), 
+				1 ->%Perdo il messaggio 
 					lost;
 
 				2 -> 
-					io:format("Messaggio di ~p mandato due volte ~n~n",[self()]),
+					%Mando due volte il messaggio
 					Sender ! Msg,
 					Sender ! Msg;
 				
@@ -239,13 +278,12 @@ sendMsg(Sender, Msg) ->
 	
 
 sendMsgToList(ListFriend,Msg) ->
-	io:format(" ~p Send messages to list ~p ~n~n",[self(),ListFriend]),
 	lists:foreach(fun (Friend) -> 
 		case rand:uniform(10) of 
-			1 ->io:format("Messaggio di ~p perso ~n~n",[self()]), 
+			1 ->%Perdo il messaggio 
 				lost;
 
-			2 -> io:format("Messaggio di ~p mandato due volte ~n~n",[self()]),
+			2 -> %Mando due volte il messaggio
 				 Friend ! Msg,
 				 Friend ! Msg;
 
@@ -253,8 +291,10 @@ sendMsgToList(ListFriend,Msg) ->
 		end
 	end,ListFriend).
 
-searchBlock([H|T],Id) ->
+searchBlock(Chain,Id) ->
 
+    
+    [H|T] = Chain,
 	{ID, Precedente, _ , _ } = H,
 
 	io:format("Precedente: ~p ~n~n" , [Precedente]),
@@ -265,6 +305,63 @@ searchBlock([H|T],Id) ->
 	end.
 
 
+searchTransactionInTheChain(Transazione,Chain)->
+	case Chain of
+
+		[] -> false;
+		
+		_ -> [H|T] = Chain,
+
+			 {_, _, Lista_di_transazioni, _} = H,
+
+			 case lists:member(Transazione,Lista_di_transazioni) of
+
+				 true -> true;
+
+				 false -> searchTransactionInTheChain(Transazione,T)
+
+			 end
+			 
+	end.
+
+searchOtherTransactionInTheChain(ListaTransazioni,Chain)->
+
+	case length(ListaTransazioni) of 
+		
+		0 -> false; 
+
+		_ -> [Head|Tail] = ListaTransazioni,
+
+			 SearchT = searchTransactionInTheChain(Head,Chain),
+			 
+			 case SearchT of
+
+			 true -> true;
+			 		 
+			
+			 false->  searchOtherTransactionInTheChain(Tail,Chain)
+				
+			 end
+	end.	
+
+mineTransactions(TList,MyChain) ->
+	case MyChain of
+
+        [] -> 
+			Soluzione = proof_of_work:solve({none, TList}),
+        	Block = {make_ref(), none, TList, Soluzione},
+			Block;
+									
+		_ ->
+        	% Prendo la testa della mia catena
+        	{Id, Prev, _, _} = lists:last(MyChain),
+			Soluzione = proof_of_work:solve({Prev, TList}),
+        	Block = {make_ref(), Id, TList, Soluzione},
+			Block
+    end.
+ 	
+	
+
 % Mi registro nella lista globale ed inizio
 main(NameNode) -> 
 	
@@ -274,59 +371,121 @@ main(NameNode) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% TESTING CODE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-sendTransaction(Dest,Payload) ->
+sendT(Dest,Payload) ->
     Dest ! {push, {make_ref(), Payload}},
     io:format("> Send ~p to ~p ~n~n",[Payload,Dest]).
 
 test() ->
 	
-	
-	spawn(teacher_node, main, []), % teacher node
-  	sleep(1),
-	
-	TIME_TO_TRANS = 3,
+	TIME = 2,
+    TIME_TO_TRANS = 3,
+    spawn(teacher_node,main,[]), % teacher_node
+    sleep(1),
+    
+    N1 = spawn(?MODULE,main,[n1]),
+    io:format("~p -> ~p~n",["N1",N1]),
+    sleep(TIME),
+    
+    N2 = spawn(?MODULE,main,[n2]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    sleep(TIME),
 
-	N1 = spawn(fun() -> main(n1) end),
-	io:format("N1) ->  ~p ~n ~n",[N1]),
-	sleep(2),
-	N2 = spawn(fun() -> main(n2) end),
-	io:format("N2) ->  ~p ~n ~n",[N2]),
-	sleep(2),
-	N3 = spawn(fun() -> main(n3) end),
-	io:format("N3) ->  ~p ~n ~n",[N3]),
-	sleep(2),
-	io:format("Finish to spawn nodes and teacher-node ~n ~n"),
-	sleep(2),
+    N3 = spawn(?MODULE,main,[n3]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    sleep(TIME),
+    
+    N4 = spawn(?MODULE,main,[n4]),
+    io:format("~p -> ~p~n~n",["N4",N4]),
+	sleep(15),
 
-	sleep(5),
-    io:format("Testing Transaction...~n~n"),
-    sendTransaction(N1,"Transaction 1 "),
+	%N1 ! {printF,n1},
+	%N2 ! {printF,n2},
+	%N3 ! {printF,n3},
+	%N4 ! {printF,n4},
+	%sleep(10),
+	% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %sleep(5),
+    io:format("Testing Transaction...~n ~n"),
+    sendT(N1,"  Transazione 1  "),
     sleep(TIME_TO_TRANS),
-    sendTransaction(N1,"Transaction 2 "),
+    sendT(N1,"  Transazione 2  "),
     sleep(TIME_TO_TRANS),
-    sendTransaction(N2,"Transaction 3 "),
+    sendT(N2,"  Transazione 3  "),
     sleep(TIME_TO_TRANS),
-    sendTransaction(N2,"Transaction 4 "),
-    sleep(TIME_TO_TRANS*5),
-    sendTransaction(N3,"Transaction 5 "),
-    sendTransaction(N3,"Transaction 6 "),
+    sendT(N3,"  Transazione 4  "),
+    sleep(TIME_TO_TRANS),
+    sendT(N2,"  Transazione 5  "),
+    sleep(TIME_TO_TRANS),
+    sendT(N2,"  Transazione 6  "),
 
-	
-	N4 = spawn(fun() -> main(n4) end),
-	io:format("N4) ->  ~p ~n ~n",[N4]),
-	sleep(?TimeSleep),
-	N5 = spawn(fun() -> main(n5) end),
-	io:format("N5) ->  ~p ~n ~n",[N5]),
-	sleep(?TimeSleep),
-	sendTransaction(N4,"Transaction 7 "),
-    sendTransaction(N5,"Transaction 8 "),
-	sleep(20),
+    io:format("End Transactions Send ~n ~n"),
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %sleep(20),
+    io:format("New Actors ~n~n"),
+    N5 = spawn(?MODULE,main,[n5]),
+    io:format("~p -> ~p~n",["N5",N5]),
+    %sleep(20),
+    sleep(TIME_TO_TRANS),
+    sendT(N1,"  Transazione 7  "),
+ 
+    io:format("~p -> ~p~n~n",["N1",N1]),
+    io:format("~p -> ~p~n~n",["N2",N2]),
+    io:format("~p -> ~p~n~n",["N3",N3]),
+    io:format("~p -> ~p~n~n",["N4",N4]),
+    io:format("~p -> ~p~n~n",["N5",N5]),
+    N1 ! {printC,n1},
+    N2 ! {printC,n2},
+    N3 ! {printC,n3},    
+    N4 ! {printC,n4},    
+    N5 ! {printC,n5},
+    sleep(50),
 
-	N1 ! {printC,n1},
-	N2 ! {printC,n2},
-	N3 ! {printC,n3},
-	N4 ! {printC,n4},
-	N5 ! {printC,n5},
-	sleep(10).
+    sendT(N5,"  Transazione 8"),
+    io:format("~p -> ~p~n~n",["N1",N1]),
+    io:format("~p -> ~p~n~n",["N2",N2]),
+    io:format("~p -> ~p~n~n",["N3",N3]),
+    io:format("~p -> ~p~n~n",["N4",N4]),
+    io:format("~p -> ~p~n~n",["N5",N5]),
+    N1 ! {printC,n1},
+    N2 ! {printC,n2},
+    N3 ! {printC,n3},    
+    N4 ! {printC,n4},    
+    N5 ! {printC,n5},
+    sleep(40),
+
+    exit(N1, kill),
+    sleep(20),
+
+    sendT(N5,"  Transazione 9  "),
+    io:format("Controllare che tutti hanno tutto~n"),
+    
+    % io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n",["N2",N2]),
+    io:format("~p -> ~p~n",["N3",N3]),
+    io:format("~p -> ~p~n",["N4",N4]),
+    io:format("~p -> ~p~n",["N5",N5]),
+    % N1 ! {printC},
+    N2 ! {printC,n2},
+    N3 ! {printC,n3},    
+    N4 ! {printC,n4},    
+    N5 ! {printC,n5},
+
+
+    sleep(50),
+    io:format("Ultima stampa~n~n"),
+
+    % io:format("~p -> ~p~n",["N1",N1]),
+    io:format("~p -> ~p~n~n",["N2",N2]),
+    io:format("~p -> ~p~n~n",["N3",N3]),
+    io:format("~p -> ~p~n~n",["N4",N4]),
+    io:format("~p -> ~p~n~n",["N5",N5]),
+    % N1 ! {printC},
+    N2 ! {printC,n2},
+    N3 ! {printC,n3},    
+    N4 ! {printC,n4},    
+    N5 ! {printC,n5},
+
+    io:format("Finito~n~n").
+
 
 
