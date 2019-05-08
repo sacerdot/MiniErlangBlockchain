@@ -34,14 +34,6 @@ main() ->
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
     loop([],NameNode, PidT, PidB, PidC, []).
 
-start(NameNode) -> 
-    Self = self(),
-    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
-    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
-    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
-    PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
-    loop([],NameNode, PidT, PidB, PidC, []).
-
 %! ----- Behavior di Root Act ---------------- 
 loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
     receive 
@@ -155,6 +147,15 @@ addNodes(LengthFList,ListTemp) ->
 
 
 % ------ TESTING CODE ----------
+% main:easy(). oppure main:hard().
+start(NameNode) -> 
+    Self = self(),
+    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
+    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
+    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
+    PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
+    loop([],NameNode, PidT, PidB, PidC, []).
+
 sendT(Dest,Payload) ->
     Dest ! {push, {make_ref(), Payload}},
     io:format("> Send ~p to ~p~n",[Payload,Dest]).
