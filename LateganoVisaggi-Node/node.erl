@@ -1,8 +1,8 @@
-% author (@Antonio Lategano)
-% author (@Salvatore Visaggi)
+%% @author Antonio Lategano - 850838
+%% @author Salvatore Visaggi - 857006
 
 -module(node).
--export([main/0, loop/5, start/0]).
+-export([main/0, loop/5, test/0]).
 -define(TIMEOUT, 10000).
 
 sleep(N) -> receive after N*1000 -> ok end.
@@ -555,7 +555,7 @@ sendMessage(Receiver, Msg) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-start() ->
+main() ->
     io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER~n", [self()]),
     global:send(teacher_node, {get_friends, self(), make_ref()}),
     sleep(5),
@@ -569,7 +569,7 @@ start() ->
     loop([],[],[],[],none).
 
 
-main() ->
+test() ->
     spawn(teacher_node, main, []),
     sleep(5),
     N1 = spawn(node, start, []),
