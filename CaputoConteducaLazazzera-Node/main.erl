@@ -13,7 +13,7 @@
 
 
 load_module_act() ->
-    compile:file('actors/check_act.erl'), % attore che controlla la tipologia
+    compile:file('actors/check_act.erl'), % attore che controlla la topologia
     compile:file('actors/transaction_act'), % attore gestore delle transazioni
     compile:file('actors/block_act.erl'),
     compile:file('actors/block_gossiping_act.erl'), 
