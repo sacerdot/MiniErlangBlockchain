@@ -26,7 +26,7 @@ call_miner(Main_actor_Pid, Blockchain, Transactions_list) ->
   M = spawn(fun() -> miner_main(Main_actor_Pid,
     mainActorCR:retreive_ID_blocco_testa(Blockchain),Transactions_list)
   end),
-  register(minerCR, M),
+  register(minerCR, M).
   %io:format("Miner ~p created~n", [M]).
 
 % funzione che verifica se il minatore sta minando più o meno di 10 transazioni:
@@ -57,7 +57,7 @@ miner_main(Pid_attore_principale, ID_blocco_testa, Transactions_list) ->
     true ->
       Soluzione = proof_of_work:solve({ID_blocco_testa, Transactions_list}),
       % %io:format("Pid attore principale: ~p~n", [Pid_attore_principale]),
-      Pid_attore_principale ! {update, self(),{make_ref(), ID_blocco_testa, Transactions_list, Soluzione}},
+      Pid_attore_principale ! {update, self(),{make_ref(), ID_blocco_testa, Transactions_list, Soluzione}};
       %io:format("Blocco minato con successo~n");
     false ->
       ignore

@@ -14,7 +14,7 @@ watch(Main, Friend) ->
       %io:format("Watcher ~p -> pong from ~p~n",[Self, Friend]),
       watch(Main, Friend)
   after 5000 ->
-    Main ! {dead, Self, Friend},
+    Main ! {dead, Self, Friend}
     %io:format("Watcher ~p -> dead to ~p~n",[Self, Main])
   end.
 
