@@ -1,18 +1,19 @@
--module(ccl).
+-module(main).
 -import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
 -import (block_act , [start_B_act/2]).
 -import (utils , [sendMessage/2,sleep/1,watch/2,watchFriends/2]).
--export([start/1,easy/0,hard/0]).
+-export([main/0,start/1,easy/0,hard/0]).
 -on_load(load_module_act/0).
 
 %|------------INIT--------------------|
-%| MyNode = spawn(ccl,start,["CCL"]). |
+%| net_adm:ping('teacher_node@yyy').  |
+%| main:main().                       |
 %|------------------------------------|
 
 
 load_module_act() ->
-    compile:file('actors/check_act.erl'), % attore che controlla la tipologia
+    compile:file('actors/check_act.erl'), % attore che controlla la topologia
     compile:file('actors/transaction_act'), % attore gestore delle transazioni
     compile:file('actors/block_act.erl'),
     compile:file('actors/block_gossiping_act.erl'), 
@@ -20,9 +21,18 @@ load_module_act() ->
     compile:file('actors/miner_act.erl'), 
     compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
-    %compile:file('teacher_node.erl'),
-    %compile:file('proof_of_work.erl'),
+%    compile:file('teacher_node.erl'),
+%    compile:file('proof_of_work.erl'),
     ok.  
+
+main() -> 
+    NameNode = "CCL",
+    Self = self(),
+    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
+    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
+    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
+    PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
+    loop([],NameNode, PidT, PidB, PidC, []).
 
 start(NameNode) -> 
     Self = self(),
@@ -32,7 +42,7 @@ start(NameNode) ->
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
     loop([],NameNode, PidT, PidB, PidC, []).
 
-%! ----- Behavior di Root Act ---------------
+%! ----- Behavior di Root Act ---------------- 
 loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
     receive 
         %! DEBUG 
