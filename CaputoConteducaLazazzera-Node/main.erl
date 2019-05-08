@@ -21,8 +21,8 @@ load_module_act() ->
     compile:file('actors/miner_act.erl'), 
     compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
-    compile:file('teacher_node.erl'),
-    compile:file('proof_of_work.erl'),
+%    compile:file('teacher_node.erl'),
+%    compile:file('proof_of_work.erl'),
     ok.  
 
 main() -> 
