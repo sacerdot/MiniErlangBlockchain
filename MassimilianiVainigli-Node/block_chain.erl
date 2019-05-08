@@ -1,4 +1,4 @@
--module(blockChain).
+-module(block_chain).
 -import(support, [all_elements_are_different/2, index_of_block/2, get_first_elements/2, send_msg/2]).
 -export([mining/3, block_chain/3]).
 
@@ -92,7 +92,7 @@ ricostruzioneCatena(Manager, ListBlocks, SenderList, Sender, Attempts) ->
 
     % posizione del nuovo blocco nella mia catena
     Index = index_of_block(ListBlocks, NuovoBlocco ),
-    LenSender = length(SenderList) + length(ListBlocks ) - Index,
+    LenSender = length(SenderList) + Index,
     LenMyList = length(ListBlocks),
 
     LongerList = if(LenSender > LenMyList) -> get_first_elements(ListBlocks,Index) ++ SenderList; true -> ListBlocks  end,

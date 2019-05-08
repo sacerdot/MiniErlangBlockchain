@@ -1,15 +1,5 @@
-%%%-------------------------------------------------------------------
-%%% @author andrea
-%%% @copyright (C) 2019, <COMPANY>
-%%% @doc
-%%%
-%%% @end
-%%% Created : 16. apr 2019 14.47
-%%%-------------------------------------------------------------------
 -module(topologyFP).
--author("andrea").
 -export([watch/2, managerNonce/1, newFriendsRequest/6, gossipingMessage/1, sendGetFriends/2, sendMaybeWrongMessages/3]).
-
 
 watch(Main, Node) ->
   nodeFP:sleep(10),

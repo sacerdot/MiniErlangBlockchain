@@ -32,7 +32,7 @@ start(NameNode) ->
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
     loop([],NameNode, PidT, PidB, PidC, []).
 
-%! ----- Behavior di Root Act ---------------- 
+%! ----- Behavior di Root Act ---------------
 loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
     receive 
         %! DEBUG 

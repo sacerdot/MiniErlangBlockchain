@@ -1,6 +1,6 @@
 -module(manager).
 -import(support, [get_first_elements/2, send_msg/2]).
--import(blockChain, [mining/3]).
+-import(block_chain, [mining/3]).
 
 -export([manager/7]).
 
@@ -88,6 +88,10 @@ manager(Checker, BlockChain, Miner, List_friends, List_blocks, Not_inserted_tran
           [send_msg(Friend, {push, Transazione}) || Friend <- List_friends],
           manager(Checker, BlockChain, Miner, List_friends, List_blocks, Not_inserted_transactions ++ [Transazione], Mining_transactions)
       end;
+
+    % for debugging
+    {Sender, send_blockchain} ->
+      Sender ! {self(), blockchain, List_blocks};
 
   % stampe
     {stampa_amici} ->
