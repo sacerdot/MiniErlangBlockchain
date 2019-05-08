@@ -1,7 +1,17 @@
 MiniErlangBlockchain: an exercise in Erlang
 ===========================================
 
-Version V0.5
+Version V0.6
+============
+
+Per lanciare il vostro nodo:
+
+erl -name docente    # lancia il nodo Erlang del docente
+erl -name Nome       # per lanciare il vostro nodo Erlang
+
+net_adm:ping('docente@xxx.yyy.zzz').
+main:main().         # per lanciare il vostro nodo blockchain
+
 ============
 
 Chiamiamo NODE un nodo della blockchain.
