@@ -5,7 +5,7 @@
 
 %% l'attore istanziato su tale funzione gestisce la Pool delle Transazioni e tutte le richieste inerenti ad essa
 managerTransactions(PIDMain, PIDGossipingMessage, PoolTransactions, TransactionsInBlocks) ->
-%%  io:format("~p ->+++++++ managerTransactions  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [self(), PoolTransactions, TransactionsInBlocks]),
+  io:format("PIDMain: ~p Fun managerTransactions->  ~nPoolTransactions ~p ~n  TransactionsInBlocks~p ~n", [self(), PoolTransactions, TransactionsInBlocks]),
   receive
     {push, Transaction} ->
       case lists:member(Transaction, PoolTransactions) or lists:member(Transaction, TransactionsInBlocks) of
@@ -49,22 +49,26 @@ initRebuildBlockChain(PIDManagerBlock, PIDManagerFriends, PIDMining, NewBlock, S
 rebuildBlockChain(PIDManagerBlock, NewBlockChain, FriendsPlusSender, InitIndex) ->
   TempNonceF = make_ref(),
   TempLength = length(FriendsPlusSender),
-  Index = case InitIndex of %%corrisponde a modulo TempLength + 1
+  %%corrisponde a ((InitIndex+1) modulo TempLength)
+  Index = case InitIndex of
             TempLength -> 1;
             _ -> InitIndex + 1
           end,
   lists:nth(Index, FriendsPlusSender) ! {get_previous, self(), TempNonceF, element(2, lists:nth(1, NewBlockChain))},
   receive
+    {previous, TempNonceF, none} -> do_nothing;
     {previous, TempNonceF, BlockPrevious} ->
       case checkTransactionsToBlockChain(element(3, BlockPrevious), NewBlockChain) of
-        false ->%%stopRebuild perchè entrando in questa casistica vuol dire che la catena che sto ricostruendo è errata poichè contiene transazioni ripetute
+        false ->
+          %%stopRebuild perchè entrando in questa casistica vuol dire che la catena che sto ricostruendo è errata poichè contiene transazioni ripetute
           do_nothing;
         true ->
           TempNewBlockChain = [BlockPrevious] ++ NewBlockChain,
           TempNonceB = make_ref(),
           PIDManagerBlock ! {isForkPoint, TempNewBlockChain, self(), TempNonceB},
           receive
-            {not_found, TempNonceB} -> rebuildBlockChain(PIDManagerBlock, TempNewBlockChain, FriendsPlusSender, Index - 1);
+            {not_found, TempNonceB} ->
+              rebuildBlockChain(PIDManagerBlock, TempNewBlockChain, FriendsPlusSender, Index - 1);
             {stopRebuild, TempNonceB} -> do_nothing
           end
       end
@@ -80,7 +84,7 @@ initManagerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransact
 managerBlock(PIDMain, PIDManagerFriends, PIDManagerNonce, PIDManagerTransactions, PIDGossipingMessage, PIDMining, BlockChain) ->
   process_flag(trap_exit, true),
   MyPid = self(),
-  io:format("~p ->MANAGER_BLOCK: ~p length: ~p BlockChain: ~p~n !!!!!!!!!!!!!!!!!!!!!!!~n", [PIDMain, MyPid, length(BlockChain), BlockChain]),
+  io:format("PIDMain: ~p fun MANAGER_BLOCK -> length: ~p~n BlockChain: ~p~n ~n", [PIDMain, length(BlockChain), BlockChain]),
   receive
     {update, Sender, {IDBlock, IDPreviousBlock, BlockTransactions, Solution}} ->
       case BlockTransactions of
@@ -252,13 +256,14 @@ indexOfBlock(IdBlock, [_ | Tl], Index) -> indexOfBlock(IdBlock, Tl, Index + 1).
 %%controlla tramite patter matching se l'id del blocco precedente corrisponde alla testa della BlockChain
 equalsPrevious(none, []) -> true;
 equalsPrevious(_, []) -> false;
-equalsPrevious(IDPreviousBlock, BlockChain) -> equalsPrevious(check, IDPreviousBlock, lists:nth(length(BlockChain), BlockChain)).
+equalsPrevious(IDPreviousBlock, BlockChain) ->
+  equalsPrevious(check, IDPreviousBlock, lists:nth(length(BlockChain), BlockChain)).
 equalsPrevious(check, IDPreviousBlock, {IDPreviousBlock, _, _, _}) -> true;
 equalsPrevious(check, _, _) -> false.
 
 %%l'attore istanziato su tale funzione si occupa del mining di un nuovo blocco
 mining(PIDManagerTransactions, PIDManagerBlocks) ->
-%%  nodeFP:sleep(rand:uniform(5)),%% rand time only for test
+%%  main:sleep(rand:uniform(5)),%% rand time only for test
   MyPid = self(),
 %%  io:format("PID_block ~p PidMining ~p -> ----------------------------START MINING--------------------------------------- ~n", [PIDManagerBlocks, self()]),
   Nonce = make_ref(),
@@ -267,7 +272,7 @@ mining(PIDManagerTransactions, PIDManagerBlocks) ->
     {transactionsToMine, Nonce, TransactionsToMine} ->
       case TransactionsToMine of
         [] ->
-          nodeFP:sleep(3),
+          main:sleep(3),
           mining(PIDManagerTransactions, PIDManagerBlocks);
         _ ->
           Nonce2 = make_ref(),
@@ -292,7 +297,7 @@ managerHead(MainPID) ->
   end,
   managerHead(MainPID).
 
-
+%%seleziona in modo casuale N transazioni dalla PoolTransactions
 getNRandomTransactions(TransactionsChosen, PoolTransactions, N) ->
   case PoolTransactions of
     [] -> TransactionsChosen;

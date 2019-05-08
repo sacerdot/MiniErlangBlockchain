@@ -1,10 +1,23 @@
--module(nodeFP).
--export([init/0, sleep/1]).
+-module(main).
+-export([watchMain/0, main/0, sleep/1]).
 
 sleep(N) -> receive after N * 1000 -> ok end.
 
+%%link verso main in modo tale da catturarne la morte improvvisa e farlo ripartire da zero
+watchMain() ->
+  process_flag(trap_exit, true),
+  receive
+    {'EXIT', Pid, Reason} ->
+      io:format("Kill ~p Main ~p~n", [Pid, Reason]),
+      spawn(main, main, []),
+      exit(self(), kill)
+  end.
+
 %% fa partire tutti gli attori ausiliari
-init() ->
+main() ->
+  compile:file(topologyFP),
+  compile:file(blockChain),
+  spawn_link(main, watchMain, []),
   PID = self(),
   PIDManagerNonce = spawn_link(topologyFP, managerNonce, [[]]),
   PIDManagerMessage = spawn_link(topologyFP, sendGetFriends, [PID, PIDManagerNonce]),
@@ -16,8 +29,8 @@ init() ->
   PIDManagerHead = spawn_link(blockChain, managerHead, [PID]),
   loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead).
 
+%%chiedo amici al teacher_node e se non ricevo risposta itero finchè il nodo docente non risponde con la lista di amici
 loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead) ->
-%%chiedo amici al teacher_node
   NonceGlobalSend = make_ref(),
   PIDManagerNonce ! {updateNonce, NonceGlobalSend},%% serve perchè controllo il Nonce bel managerFriends
   TeacherPID = global:send(teacher_node, {get_friends, self(), NonceGlobalSend}),
@@ -28,8 +41,9 @@ loopInit(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
   end,
   loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID).
 
+%%loopMain è semplicemente uno scheduler di messaggi verso gli attori che li gestiscono
 loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID) ->
-  process_flag(trap_exit, true),
+%%  process_flag(trap_exit, true),
   receive
     {friends, Nonce, FriendsOfFriend} ->
       PIDManagerFriends ! {friends, Nonce, FriendsOfFriend};
@@ -56,11 +70,11 @@ loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBl
     {maybeNoFollowers} ->
       TempNonce = make_ref(),
       PIDManagerNonce ! {updateNonce, TempNonce},
-      PIDManagerFriends ! {sendMessageRandFriend, {get_head, PIDManagerBlock, TempNonce}};
+      PIDManagerFriends ! {sendMessageRandFriend, {get_head, PIDManagerBlock, TempNonce}}
 
-    {'EXIT', Pid, Reason} ->
-      io:format("Kill ~p Reason ~p~n", [Pid, Reason]),
-      spawn(nodeFP, init, []),
-      exit(self(), kill)
+%%    {'EXIT', Pid, Reason} ->
+%%      io:format("Kill ~p Reason ~p~n", [Pid, Reason]),
+%%      spawn(main, main, []),
+%%      exit(self(), kill)
   end,
   loopMain(PIDManagerFriends, PIDManagerNonce, PIDManagerTransaction, PIDManagerBlock, PIDManagerHead, TeacherPID).

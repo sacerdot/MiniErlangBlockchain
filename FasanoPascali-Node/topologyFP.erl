@@ -1,8 +1,9 @@
 -module(topologyFP).
 -export([watch/2, managerNonce/1, newFriendsRequest/6, gossipingMessage/1, sendGetFriends/2, sendMaybeWrongMessages/3]).
 
+%%monitora gli amici e capisce se uno di questi è morto o è in loop
 watch(Main, Node) ->
-  nodeFP:sleep(10),
+  main:sleep(10),
   Ref = make_ref(),
   Node ! {ping, self(), Ref},
   receive
@@ -30,7 +31,7 @@ managerNonce(Nonces) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Step: 0-> Skip; 1-> 1° richiesta; 2->sleep e 2° richiesta ; 3-> chiedo al nodo prof e sleep. Sleep in attore secondario
 newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage) ->
-%%  io:format("~p Start newFriendsRequest-> Friends: ~p Step: ~p~n", [PIDMain, Friends, Step]),
+  io:format("PIDMain: ~p Fun newFriendsRequest -> Friends: ~p~n", [PIDMain, Friends]),
   MyPid = self(),
   case Step of
     0 -> ok; %% Skip
@@ -50,6 +51,7 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
       receive
         {nonce, false, TempNonce} -> do_nothing;
         {nonce, ok, TempNonce} ->
+%%          estraggo solo i nuovi amici e avvio i loro watcher
           NewFriends = extractNewFriends(FriendsOfFriend, Friends ++ [PIDMain], Friends),
           [spawn_link(fun() -> watch(MyPid, X) end) || X <- NewFriends],
           NewTotalFriends = Friends ++ NewFriends,
@@ -83,12 +85,13 @@ newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PI
     _ -> newFriendsRequest(PIDMain, Friends, Step, PIDManagerNonce, PIDManagerMessage, PIDGossipingMessage)
   end.
 
+%%l'attore avviato su tale funzione si ossupa del gossiping dei messaggi verso i nostri amici
 gossipingMessage(Friends) ->
   receive
     {updateFriends, NewFriends} ->
       gossipingMessage(NewFriends);
     {gossipingMessage, Message} ->
-      nodeFP:sleep(1),
+      main:sleep(1),
       gossipingMessage(Friends, Message)
   end,
   gossipingMessage(Friends).
@@ -97,7 +100,7 @@ gossipingMessage([H | T], Message) ->
   sendMaybeWrongMessages(H, Message, true),
   gossipingMessage(T, Message).
 
-%% InitFriends è stato inserito per evitare di spawn nodi monitor già esistenti e quindi far ritornare solo i nuovi amici
+%% extractNewFriends è stato inserito per evitare lo spawn di nodi monitor già esistenti e quindi far ritornare solo i nuovi amici
 extractNewFriends(FriendsOfFriend, MyFriendsAndI, InitFriends) ->
   FilterFriends = FriendsOfFriend--MyFriendsAndI,
   if
@@ -111,17 +114,22 @@ extractNewFriends(FriendsOfFriend, MyFriendsAndI, InitFriends) ->
       end
   end.
 
+%%è stato creato un attore secondario per l'invio di un messaggio di richiesta degli amici perchè in alcune
+%% casistiche siamo bloccanti (per evitare la congestione della rete)
 sendGetFriends(PIDMain, ManagerNonce) ->
   TempNonce = make_ref(),
   ManagerNonce ! {updateNonce, TempNonce},
   receive
-    {global} -> global:send(teacher_node, {get_friends, PIDMain, TempNonce}), nodeFP:sleep(5);
-    {Receive, Step} when Step == 2 -> nodeFP:sleep(5), Receive ! {get_friends, PIDMain, TempNonce};
+    {global} -> global:send(teacher_node, {get_friends, PIDMain, TempNonce}), main:sleep(5);
+    {Receive, Step} when Step == 2 -> main:sleep(5), Receive ! {get_friends, PIDMain, TempNonce};
     {Receive, _} -> Receive ! {get_friends, PIDMain, TempNonce}
   end,
+%%  viene svuotata la coda dei messaggi perchè se ci sono arrivate ulteriori richieste di amici dobbiamo scartarle
+%% avendone appena inviata una, inoltre se così non fosse l'essere bloccanti non ci evita la congestione della rete
   flushMailBox(),
   sendGetFriends(PIDMain, ManagerNonce).
 
+%%pulisce la coda dei messaggi
 flushMailBox() ->
   receive _ -> flushMailBox()
   after 0 -> ok
