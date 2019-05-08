@@ -159,6 +159,7 @@ start(NameNode) ->
 sendT(Dest,Payload) ->
     Dest ! {push, {make_ref(), Payload}},
     io:format("> Send ~p to ~p~n",[Payload,Dest]).
+
 easy() ->
      io:format("Easy Version~n"),
     TIME = 2,
@@ -253,7 +254,6 @@ easy() ->
     io:format("FINITO~n").
 
 hard() ->  
-
     io:format("Hard Version~n"),
     TIME = 2,
     TIME_TO_TRANS = 3,
