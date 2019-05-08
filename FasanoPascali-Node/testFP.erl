@@ -1,6 +1,4 @@
 -module(testFP).
--export([test1/0, minimalTest/0, testBlockKillPID3/0, sendTransaction/2,
--author("andrea").
 -export([compileM/0, test1/0, minimalTest/0, testBlockKillPID3/0, sendTransaction/2,
   testMining2PrevNone/0, testGossip1/0, testGossip/0, testFork/0,
   testBlockANDtransactionDouble/0, testNoFollowers/0, testRebuild/0]).
