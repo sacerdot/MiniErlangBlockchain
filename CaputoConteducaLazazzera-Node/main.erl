@@ -32,6 +32,7 @@ watchRoot(PidRoot) ->
     receive
         {pong, Ref} -> watchRoot(PidRoot)
     after 5000 -> 
+        io:format("CCL is dead :( Restarting...~n"), 
         main()
     end.
 
