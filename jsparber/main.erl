@@ -14,7 +14,7 @@ load_externals_modules() ->
 % Domenico Coriale (859415).
 %
 % This node waits till it has at least on friend.
-% It can be run with jsparber_node:main/0, if run with spawn
+% It can be run with main:main/0, if run with spawn
 % then transactions can be send via jsparber_node:push/1
 
 -define(NODE, jsparber_node).
@@ -64,7 +64,11 @@ watch(Main, Node, Toleranz) ->
 % use send global only when sending to teacher_node
 get_friends(Main, ?TEACHER_NODE) ->
     Nonce = make_ref(),
-    global:send(?TEACHER_NODE, {get_friends, Main, Nonce}),
+    try global:send(?TEACHER_NODE, {get_friends, Main, Nonce})
+    catch
+      % Save the node, the user will have to do a manuel ping to the teacher_node to readd a teacher_node
+      exit: _ -> io:format("No teacher_node\n")
+    end,
     io:format("Sent get_friends to ~p with Nonce ~p~n",
 	      [?TEACHER_NODE, {friends, Nonce}]),
     {friends, Nonce};
