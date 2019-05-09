@@ -1,4 +1,4 @@
--module(jsparber_node).
+-module(main).
 
 -export([load_externals_modules/0, main/0, push/1,
 	 test/0]).
@@ -19,8 +19,7 @@ load_externals_modules() ->
 
 -define(NODE, jsparber_node).
 
--define(TEACHER_NODE,
-	{teacher_node, teacher_node@librem}).
+-define(TEACHER_NODE, teacher_node).
 
 -define(DEAD_TOLERANZ, 0).
 
@@ -62,6 +61,13 @@ watch(Main, Node, Toleranz) ->
     end.
 
 % Request friends (get_friends)
+% use send global only when sending to teacher_node
+get_friends(Main, ?TEACHER_NODE) ->
+    Nonce = make_ref(),
+    global:send(?TEACHER_NODE, {get_friends, Main, Nonce}),
+    io:format("Sent get_friends to ~p with Nonce ~p~n",
+	      [?TEACHER_NODE, {friends, Nonce}]),
+    {friends, Nonce};
 get_friends(Main, Dest) ->
     Nonce = make_ref(),
     Dest ! {get_friends, Main, Nonce},
