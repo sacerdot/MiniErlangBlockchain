@@ -74,17 +74,17 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
               loop(Friends_list, Friends_list_ask, Watcher_list, [{get_previous_handler_CR, Gph}] ++ Actors_list -- [{get_previous_handler_CR, Pid}], Transactions_list, BlockChain);
             adder_friends_CR ->
               %io:format("Morte di adder_friends_CR. Riavvio del figlio in corso...~n"),
-              Af = spawn_link(fun() -> friends_library:adder_friends(self()) end),
+              Af = spawn_link(fun() -> friends_library:adder_friends(Self) end),
               register(adder_friends_CR, Af),
               loop(Friends_list, Friends_list_ask, Watcher_list, [{adder_friends_CR, Af}] ++ Actors_list -- [{adder_friends_CR, Pid}], Transactions_list, BlockChain);
             checker_list_CR ->
               %io:format("Morte di checker_list_CR. Riavvio del figlio in corso...~n"),
-              Cl = spawn_link(fun() -> friends_library:checker_list(self()) end),
+              Cl = spawn_link(fun() -> friends_library:checker_list(Self) end),
               register(checker_list_CR, Cl),
               loop(Friends_list, Friends_list_ask, Watcher_list, [{checker_list_CR, Cl}] ++ Actors_list -- [{checker_list_CR, Pid}], Transactions_list, BlockChain);
             checker_nonce_CR ->
               %io:format("Morte di checker_nonce_CR. Riavvio del figlio in corso...~n"),
-              Cn = spawn_link(fun() -> friends_library:checker_Nonce(self(), []) end),
+              Cn = spawn_link(fun() -> friends_library:checker_Nonce(Self, []) end),
               register(checker_nonce_CR, Cn),
               loop(Friends_list, Friends_list_ask, Watcher_list, [{checker_nonce_CR, Cn}] ++ Actors_list -- [{checker_nonce_CR, Pid}], Transactions_list, BlockChain);
             _ ->  loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
