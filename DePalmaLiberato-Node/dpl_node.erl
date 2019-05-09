@@ -1,5 +1,5 @@
 -module(dpl_node).
--export([run/0, main/4, test/0, handler/3, trans_handler/4,
+-export([main/0, main/4, handler/3, trans_handler/4,
         pinger/2, counter_tries/2, failed_push_tracker/1,
         block_handler/4, chain_handler/3, reconstruction_handler/4,
         miner_handler/2, miner/3, ref_handler/3]).
@@ -38,7 +38,7 @@ handler(ListaAmici, PidMain, PidCounter) ->
                             handler(ListaAmici, PidM, spawn(?MODULE, counter_tries, [0, PidHandler]))
       end;
     _ ->
-        %io:format("DPL: Friends: ~p~n", [ListaAmici]),
+        io:format("DPL: Friends: ~p~n", [ListaAmici]),
         NumeroAmici = length(ListaAmici),
         % controlla i messaggi da mandare, compresa la richiesta di amici
         case NumeroAmici of
@@ -134,7 +134,7 @@ trans_handler(PidMain, ListaAmici, TransList, PidTracker) ->
                             trans_handler(PidM, ListaAmici, TransList, spawn_link(?MODULE, failed_push_tracker, [self()]))
       end;
     _ ->
-      %io:format("DPL: translist = ~p~n", [TransList]),
+      io:format("DPL: translist = ~p~n", [TransList]),
       receive
         {give_trans_list, Sender} ->  case length(TransList) of
                                         0 -> Sender ! {trans_list_empty};
@@ -193,7 +193,7 @@ chain_handler(PidMain, ListaAmici, CatenaNostra) ->
                             chain_handler(PidM, ListaAmici, CatenaNostra)
       end;
     _ ->
-      %io:format("DPL: ChainHandler catena: ~p~n", [CatenaNostra]),
+      io:format("DPL: ChainHandler catena: ~p~n", [CatenaNostra]),
       receive
         {get_previous, Mittente, Nonce, Idblocco} ->
           spawn(fun() -> give_previous_block(Mittente, Nonce, Idblocco, CatenaNostra) end),
@@ -356,14 +356,15 @@ miner_handler(TransHandler, ChainHandler) ->
   miner_handler(TransHandler, ChainHandler).
 
 miner(TransList, IDBlocco, Pid) ->
-    %io:format("Mining...~n"),
+    io:format("Mining...~n"),
     Sol = proof_of_work:solve({IDBlocco, TransList}),
-    %io:format("DPL: Mining Finito ~p~n", [Sol]),
+    io:format("DPL: Mining Finito ~p~n", [Sol]),
     Pid ! {mining_finished, Sol}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Main %%%%%%%%%%%%%%%
 main(Handler, TransHandler, ChainHandler, MinerHandler) ->
   Ref = make_ref(),
+  process_flag(trap_exit, true),
   receive
     {push, Transazione} -> TransHandler ! {push, Transazione};
 
@@ -385,8 +386,10 @@ main(Handler, TransHandler, ChainHandler, MinerHandler) ->
     {list_from_handler, ListaAmici, Mittente, Nonce} -> Mittente ! {friends, Nonce, ListaAmici};
 
     % gestiscono la lista che arriva dal prof
-    {sad} -> %io:format("DPL: sad received :-( ~n"),
-      teacher_node ! {get_friends, self(), Ref},
+    {sad} -> io:format("DPL: ricevuto sad :-( ~n"),
+      global:send(teacher_node, {get_friends, self(), Ref}),
+      io:format("DPL: get_friends mandata al prof~n"),
+      %teacher_node ! {get_friends, self(), Ref},
       receive 
         {friends, Nonce, ListaAmici} ->
           case Nonce of
@@ -395,11 +398,11 @@ main(Handler, TransHandler, ChainHandler, MinerHandler) ->
           end
       end;
 
-    {friends, Nonce, ListaAmici} ->
-    case Nonce of
-      Ref -> Handler ! {list_from_main, ListaAmici};
-      _   -> ok
-    end;
+    % {friends, Nonce, ListaAmici} ->
+    % case Nonce of
+    %   Ref -> Handler ! {list_from_main, ListaAmici};
+    %   _   -> ok
+    % end;
 
     {update, Mittente, Blocco} -> ChainHandler ! {update, Mittente, Blocco},
       MinerHandler ! {stop_mining};
@@ -417,7 +420,7 @@ main(Handler, TransHandler, ChainHandler, MinerHandler) ->
 % ref_handler
 ref_handler(Messaggio, PidHandler, Destinatario) ->
   Ref = make_ref(),
-  case tuple:length(Messaggio) of
+  case tuple_size(Messaggio) of
     2 -> {Arg1, _} = Messaggio,
          Destinatario ! {Arg1, self(), ref},
          receive
@@ -447,13 +450,14 @@ ref_handler(Messaggio, PidHandler, Destinatario) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-run() ->
+main() ->
   ChainHandler = spawn(?MODULE, chain_handler, [none, [], []]),
   TransHandler = spawn(?MODULE, trans_handler, [none, [], [], []]),
-  MinerHandler = spawn (?MODULE, miner_handler, [TransHandler, ChainHandler]),
+  MinerHandler = spawn(?MODULE, miner_handler, [TransHandler, ChainHandler]),
   FriendHandler = spawn(?MODULE, handler, [[], none, none]),
   Main = spawn(?MODULE, main, [FriendHandler, TransHandler, ChainHandler, MinerHandler]),
   register(depalma_liberato, Main).
+  
 
 % test() ->
 %   spawn(teacher_node, main, []),
@@ -471,7 +475,6 @@ run() ->
 %   FriendHandler = spawn(?MODULE, handler, [[], none, none]),
 %   Main = spawn(?MODULE, main, [FriendHandler, TransHandler, ChainHandler, MinerHandler]),
 %   register(depalma_liberato, Main),
-%   % TODO: Fare l'unregister nella test, dopo aver controllato che tutti hanno il pid del main.
 %   % TODO: gestire la morte
 
 %   sleep(15),
@@ -480,7 +483,7 @@ run() ->
 %   test_ok.
 
 % test_transactions(Main, Counter) ->
-%   sleep(3),
+%   sleep(2),
 %   case Counter of
 %     20 -> ok;
 %     _ ->

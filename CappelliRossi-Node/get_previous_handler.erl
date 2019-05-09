@@ -55,27 +55,26 @@ find_BlockE_MB(ID_Block_to_find, Mailbox) ->
 
 % INPUT: mailbox = lista di tuple {Mittente, Nonce, Id_blocco_richiesto}
 get_previous_handler_main(Mailbox) ->
-  %%io:format("hanlder start with mailbox ~p~n",[Mailbox]),
+  % io:format("hanlder start with mailbox ~p~n",[Mailbox]),
   receive
     % ricezione di messaggi get_previous:
     % il blocco richiesto non è contenuto nella blockchain -> inserisco la
     % richiesta in coda alla Mailbox
     {get_previous, Mittente, Nonce, ID_blocco_precedente} ->
-      %io:format("hanlder receive get_previous~n"),
-      %io:format("Mailbox ~p~n~n",[Mailbox ++ [{Mittente,Nonce,ID_blocco_precedente}]]),
+      % io:format("gph riceve get_previous. Mailbox: ~p~n", [Mailbox ++ [{Mittente,Nonce,ID_blocco_precedente}]]),
       get_previous_handler_main(Mailbox ++ [{Mittente,Nonce,ID_blocco_precedente}]);
 
     % ricezione di messaggi block_added:
     % è stato aggiunto un blocco alla blockchain -> verifico se qualcuno stava
     % aspettando di ricevere quel blocco e in caso affermativo lo invio a lui
     {block_added, {IDb, IDpb, Tr, Sol}} ->
-      %io:format("hanlder receive block_added~n"),
+      % io:format("gph riceve block_added~n"),
       case find_BlockE_MB(IDb, Mailbox) of
         false ->
-          %io:format("Nessuno aspettava il blocco ricevuto~n~n"),
+          % io:format("Nessuno aspettava il blocco ricevuto~n~n"),
           get_previous_handler_main(Mailbox);
         {Mittente, Nonce, ID_blocco} ->
-          %io:format("Blocco inviato a chi lo attenede~n~n"),
+          % io:format("Blocco inviato a chi lo attenede~n~n"),
           Mittente ! {previous, Nonce, {IDb, IDpb, Tr, Sol}},
           get_previous_handler_main(Mailbox -- [{Mittente, Nonce, ID_blocco}])
       end

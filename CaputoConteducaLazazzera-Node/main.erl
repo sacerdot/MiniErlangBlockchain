@@ -13,7 +13,7 @@
 
 
 load_module_act() ->
-    compile:file('actors/check_act.erl'), % attore che controlla la topologia
+    compile:file('actors/check_act.erl'), % attore che controlla la tipologia
     compile:file('actors/transaction_act'), % attore gestore delle transazioni
     compile:file('actors/block_act.erl'),
     compile:file('actors/block_gossiping_act.erl'), 
@@ -21,21 +21,35 @@ load_module_act() ->
     compile:file('actors/miner_act.erl'), 
     compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
-%    compile:file('teacher_node.erl'),
-%    compile:file('proof_of_work.erl'),
+    % compile:file('teacher_node.erl'),
+    % compile:file('proof_of_work.erl'),
     ok.  
 
+% 
+
 main() -> 
-    NameNode = "CCL",
+    {Pid,Ref} = spawn_monitor(fun() -> start("CCL") end),
+    receive
+        {'DOWN',Ref,process,Pid,_} -> 
+            io:format("CCL is dead :( Restarting...~n"), 
+            % Diamo il tempo a teacher_node di aggiornare la lista dei vivi
+            sleep(8),
+            main()
+    end.
+
+start(NameNode) ->
+    io:format("CCL is born :) ~n"), 
     Self = self(),
-    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
+    % process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
     PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
     PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
+    % spawn(fun() -> watchRoot(Self) end),
     loop([],NameNode, PidT, PidB, PidC, []).
 
 %! ----- Behavior di Root Act ---------------- 
 loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
+    
     receive 
         %! DEBUG 
         {addNewNonce, Nonce} ->
@@ -140,26 +154,25 @@ addNodes(LengthFList,ListTemp) ->
         false -> 
             ListTemp
     end.
-
+% Versione con watcher per la morte di root
+% watchRoot(PidRoot) -> 
+%     sleep(10),
+%     Ref = make_ref(),
+%     PidRoot ! {ping, self(), Ref},
+%     receive
+%         {pong, Ref} -> watchRoot(PidRoot)
+%     after 5000 -> 
+%         main()
+%     end.
 
 
 
 
 
 % ------ TESTING CODE ----------
-% main:easy(). oppure main:hard().
-start(NameNode) -> 
-    Self = self(),
-    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
-    PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
-    PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
-    PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
-    loop([],NameNode, PidT, PidB, PidC, []).
-
 sendT(Dest,Payload) ->
     Dest ! {push, {make_ref(), Payload}},
     io:format("> Send ~p to ~p~n",[Payload,Dest]).
-
 easy() ->
      io:format("Easy Version~n"),
     TIME = 2,
@@ -254,6 +267,7 @@ easy() ->
     io:format("FINITO~n").
 
 hard() ->  
+
     io:format("Hard Version~n"),
     TIME = 2,
     TIME_TO_TRANS = 3,
