@@ -1,5 +1,5 @@
 -module(dpl_node).
--export([run/0, main/4, test/0, handler/3, trans_handler/4,
+-export([main/0, main/4, handler/3, trans_handler/4,
         pinger/2, counter_tries/2, failed_push_tracker/1,
         block_handler/4, chain_handler/3, reconstruction_handler/4,
         miner_handler/2, miner/3, ref_handler/3]).
@@ -385,8 +385,10 @@ main(Handler, TransHandler, ChainHandler, MinerHandler) ->
     {list_from_handler, ListaAmici, Mittente, Nonce} -> Mittente ! {friends, Nonce, ListaAmici};
 
     % gestiscono la lista che arriva dal prof
-    {sad} -> %io:format("DPL: sad received :-( ~n"),
-      teacher_node ! {get_friends, self(), Ref},
+    {sad} -> io:format("DPL: ricevuto sad :-( ~n"),
+      global:send(teacher_node, {get_friends, self(), Ref}),
+      io:format("DPL: get_friends mandata al prof~n"),
+      %teacher_node ! {get_friends, self(), Ref},
       receive 
         {friends, Nonce, ListaAmici} ->
           case Nonce of
@@ -395,11 +397,11 @@ main(Handler, TransHandler, ChainHandler, MinerHandler) ->
           end
       end;
 
-    {friends, Nonce, ListaAmici} ->
-    case Nonce of
-      Ref -> Handler ! {list_from_main, ListaAmici};
-      _   -> ok
-    end;
+    % {friends, Nonce, ListaAmici} ->
+    % case Nonce of
+    %   Ref -> Handler ! {list_from_main, ListaAmici};
+    %   _   -> ok
+    % end;
 
     {update, Mittente, Blocco} -> ChainHandler ! {update, Mittente, Blocco},
       MinerHandler ! {stop_mining};
@@ -447,7 +449,7 @@ ref_handler(Messaggio, PidHandler, Destinatario) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-run() ->
+main() ->
   ChainHandler = spawn(?MODULE, chain_handler, [none, [], []]),
   TransHandler = spawn(?MODULE, trans_handler, [none, [], [], []]),
   MinerHandler = spawn (?MODULE, miner_handler, [TransHandler, ChainHandler]),
@@ -471,7 +473,6 @@ run() ->
 %   FriendHandler = spawn(?MODULE, handler, [[], none, none]),
 %   Main = spawn(?MODULE, main, [FriendHandler, TransHandler, ChainHandler, MinerHandler]),
 %   register(depalma_liberato, Main),
-%   % TODO: Fare l'unregister nella test, dopo aver controllato che tutti hanno il pid del main.
 %   % TODO: gestire la morte
 
 %   sleep(15),
