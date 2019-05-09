@@ -1,4 +1,4 @@
--module(mosa_node).
+-module(main).
 -author("Andrea Morabito, Paolo Santilli").
 -export([main/1,test/0]).
 -define(MaxNumberOfFriends, 3).
