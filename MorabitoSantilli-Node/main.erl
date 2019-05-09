@@ -19,8 +19,8 @@ watch(Main,Node) ->
  	after 2000 -> Main ! {dead, Node}
 	end.
 
-load_module() -> 	compile:file(?TeacherNodeUrl),
-					compile:file(?ProofOfWorkUrl),
+load_module() -> 	%compile:file(?TeacherNodeUrl),
+					%compile:file(?ProofOfWorkUrl),
 					ok.
 
 
