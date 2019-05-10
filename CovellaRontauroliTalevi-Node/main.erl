@@ -167,7 +167,6 @@ loop(MyFriends, State) ->
             case TransactionFoundInTheList of
                 true ->
                     %se la transazione è già nella catena, non facciamo nulla
-                    nothingToDo,
                     loop(MyFriends, State);
                 false ->
                     %se non conoscevamo la transazione, la inseriamo nella lista della transazione da provare ad inserire nei prossimi blocchi
@@ -222,8 +221,7 @@ loop(MyFriends, State) ->
             case lists:member(BlockID, UpdateInAnalysis) of 
                 true -> 
                     % l'update per il blocco ricevuto è già in corso e non deve esserne instanziata 
-                    % una ulteriore gestione per esso
-                    nothingToDo,
+                    % una ulteriore gestione per esso 
                     loop(MyFriends, State);
                 false -> 
                     % non vi è nessuna update in corso per il blocco ricevuto, viene quindi instanziato 
@@ -343,12 +341,12 @@ launchSenderToAllFriend(FriendList, Message) ->
     %se questo muore per qualche ragione, venga rilanciato
     put(MessageSenderPID, {messageSender, FriendList, Message}).
 
-getHead([]) -> none;
+getHead({chain, none, _}) -> none;
 getHead(CurrentChain) ->
 	{chain, IdHead, CurrentDictChain} = CurrentChain,
 	case dict:find(IdHead, CurrentDictChain) of
 		{ok, Head} -> Head;
-		error -> nothingToDo %abbiamo già IdHead come testa, l'errore non si verificherà mai
+		error -> none %abbiamo già IdHead come testa, l'errore non si verificherà mai
 	end.
 
 getBlockFromDictChain(CurrentDictChain, BlockID) ->
