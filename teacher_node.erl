@@ -24,6 +24,10 @@ loop(Nodes) ->
     {ping, Sender, Ref} ->
        Sender ! {pong, Ref} ,
        loop(Nodes) ;
+    % for testing
+    {get_nodes, Sender, Nonce} ->
+       Sender ! {nodes, Nonce, Nodes},
+       loop(Nodes) ;
     {get_friends, Sender, Nonce} ->
        New_nodes =
           case lists:member(Sender,Nodes) of

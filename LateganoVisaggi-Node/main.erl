@@ -1,7 +1,7 @@
 %% @author Antonio Lategano - 850838
 %% @author Salvatore Visaggi - 857006
 
--module(node).
+-module(main).
 -export([main/0, loop/5, test/0]).
 -define(TIMEOUT, 10000).
 

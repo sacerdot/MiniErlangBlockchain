@@ -1,4 +1,4 @@
--module(mosa_node).
+-module(main).
 -author("Andrea Morabito, Paolo Santilli").
 -export([main/1,test/0]).
 -define(MaxNumberOfFriends, 3).
@@ -19,8 +19,8 @@ watch(Main,Node) ->
  	after 2000 -> Main ! {dead, Node}
 	end.
 
-load_module() -> 	compile:file(?TeacherNodeUrl),
-					compile:file(?ProofOfWorkUrl),
+load_module() -> 	%compile:file(?TeacherNodeUrl),
+					%compile:file(?ProofOfWorkUrl),
 					ok.
 
 

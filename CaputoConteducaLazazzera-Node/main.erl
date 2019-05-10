@@ -1,13 +1,15 @@
--module(ccl).
+-module(main).
 -import (check_act , [start_C_act/1]).
 -import (transaction_act , [start_T_act/2]).
 -import (block_act , [start_B_act/2]).
 -import (utils , [sendMessage/2,sleep/1,watch/2,watchFriends/2]).
--export([start/1,easy/0,hard/0]).
+-export([main/0,start/1,easy/0,hard/0]).
 -on_load(load_module_act/0).
 
 %|------------INIT--------------------|
-%| MyNode = spawn(ccl,start,["CCL"]). |
+%| net_adm:ping('teacher_node@yyy').  |
+%|net_adm:ping('teacher@anto-P553UJ').|
+%| main:main().                       |
 %|------------------------------------|
 
 
@@ -20,20 +22,35 @@ load_module_act() ->
     compile:file('actors/miner_act.erl'), 
     compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
-    %compile:file('teacher_node.erl'),
-    %compile:file('proof_of_work.erl'),
+    % compile:file('../teacher_node.erl'),
+    % compile:file('proof_of_work.erl'),
     ok.  
 
-start(NameNode) -> 
+% 
+
+main() -> 
+    {Pid,Ref} = spawn_monitor(fun() -> start("CCL") end),
+    receive
+        {'DOWN',Ref,process,Pid,_} -> 
+            io:format("CCL is dead :( Restarting...~n"), 
+            % Diamo il tempo a teacher_node di aggiornare la lista dei vivi
+            sleep(8),
+            main()
+    end.
+
+start(NameNode) ->
+    io:format("CCL is born :) ~n"), 
     Self = self(),
-    process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
+    % process_flag(trap_exit, true), % deve essere posto prima di fare le spawn
     PidC = spawn_link(fun() -> start_C_act(Self) end), % attore delegato al check degli amici 
     PidB = spawn_link(fun() -> start_B_act(NameNode,Self) end), % attore delegato alla gestione dei blocchi
     PidT = spawn_link(fun() -> start_T_act(Self,PidB) end), % attore delegato al gestione delle transazioni
+    % spawn(fun() -> watchRoot(Self) end),
     loop([],NameNode, PidT, PidB, PidC, []).
 
-%! ----- Behavior di Root Act ---------------
+%! ----- Behavior di Root Act ---------------- 
 loop(FriendsList, NameNode,PidT,PidB,PidC,Nonces) -> 
+    
     receive 
         %! DEBUG 
         {addNewNonce, Nonce} ->
@@ -138,7 +155,16 @@ addNodes(LengthFList,ListTemp) ->
         false -> 
             ListTemp
     end.
-
+% Versione con watcher per la morte di root
+% watchRoot(PidRoot) -> 
+%     sleep(10),
+%     Ref = make_ref(),
+%     PidRoot ! {ping, self(), Ref},
+%     receive
+%         {pong, Ref} -> watchRoot(PidRoot)
+%     after 5000 -> 
+%         main()
+%     end.
 
 
 

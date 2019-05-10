@@ -4,7 +4,7 @@
 % Il watcher manda un messaggio ping ad un nostro amico che monitora e se entro 5 secondi l'amico non risponde con pong, esso
 % viene considerato morto e il watcher ci notifica della sua morte tramite il messaggio dead
 watch(Main, Friend) ->
-  mainActorCR:sleep(10),
+  main:sleep(10),
   Self = self(),
   Nonce = make_ref(),
   Friend ! {ping, Self, Nonce},
@@ -39,6 +39,7 @@ checker_Nonce(Main, Nonce_list) ->
           %io:format("Node ~p -> Nonce checked ~p~n", [Main, Nonce]),
           checker_Nonce(Main, Nonce_list -- [Nonce]);
         false ->
+          %io:format("Node ~p -> Nonce not checked ~p~n", [Main, Nonce]),
           checker_Nonce(Main, Nonce_list)
       end
   end.
@@ -84,7 +85,7 @@ adder_friends(Main) ->
 % con list e la lista. Una volta inviata la lista, il controllore verifica la sua lunghezza, se è pari a 3 non fa nulla
 % mentre se è minore di 3 ci manda un messaggio need_friends con cui ci notifica che abbiamo bisogno di amici
 checker_list(Main) ->
-  mainActorCR:sleep(10),
+  main:sleep(5),
   Self = self(),
   Main ! {get_list, Self},
   receive
@@ -105,7 +106,7 @@ checker_list(Main) ->
 sendMessageToTeacher(Msg) ->
   case rand:uniform(10) of
     1 ->
-      %io:format("Node ~p -> Messaggio al teacher_node non inviato ~n",[self()]),
+      %%io:format("Node ~p -> Messaggio al teacher_node non inviato ~n",[self()]),
       ignore;
     2 ->
       %io:format("Node ~p -> Chiedo la lista degli amici al nodo professore ~n",[self()]),
@@ -113,12 +114,20 @@ sendMessageToTeacher(Msg) ->
       global:send(teacher_node, Msg),
       global:send(teacher_node, Msg),
       % invio il messaggio al controllore dei Nonce
-      checker_nonce_CR ! {nonce, self(), Msg};
+      case whereis(checker_nonce_CR) of
+        undefined -> ignore;
+        _ ->
+          checker_nonce_CR ! {nonce, self(), Msg}
+      end;
     _ ->
       %io:format("Node ~p -> Chiedo la lista degli amici al nodo professore ~n",[self()]),
       global:send(teacher_node, Msg),
       % invio il messaggio al controllore dei Nonce
-      checker_nonce_CR ! {nonce, self(), Msg}
+      case whereis(checker_nonce_CR) of
+        undefined -> ignore;
+        _ ->
+          checker_nonce_CR ! {nonce, self(), Msg}
+      end
   end.
 
 % Invio del messaggio get_friends ad un amico random con inserimento di probabilità di perdere
@@ -132,13 +141,21 @@ sendMessageToFriend(Msg, Friend) ->
       Friend ! Msg,
       Friend ! Msg,
       % invio il messaggio al controllore dei Nonce
-      checker_nonce_CR ! {nonce, self(), Msg},
+      case whereis(checker_nonce_CR) of
+        undefined -> ignore;
+        _ ->
+          checker_nonce_CR ! {nonce, self(), Msg}
+      end,
       %io:format("Node ~p -> Messaggio a ~p  inviato due volte ~n", [self(), Friend]),
       true;
     _ ->
       Friend ! Msg,
       % invio il messaggio al controllore dei Nonce
-      checker_nonce_CR ! {nonce, self(), Msg},
+      case whereis(checker_nonce_CR) of
+        undefined -> ignore;
+        _ ->
+          checker_nonce_CR ! {nonce, self(), Msg}
+      end,
       %io:format("Node ~p -> get_friends to ~p~n", [self(), Friend]),
       true
   end.

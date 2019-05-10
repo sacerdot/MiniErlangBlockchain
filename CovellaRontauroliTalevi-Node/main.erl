@@ -1,5 +1,5 @@
--module(cotaro_node).
--export([initializeNode/0, test_nodes/0]).
+-module(main).
+-export([main/0]).
 
 %definisce il numero di amici che ogni nodo deve cercare di mantenere
 -define(NumberOfFriendsRequired, 3).
@@ -19,6 +19,8 @@
 %       lunghezza corrente della catena del nodo
 % - activeMiner: 
 %       flag che indica se è attivo correntemente un attore che sta minando un blocco
+% - updateInAnalysis:
+%       lista dei messaggi di update in analisi in questo momento per non gestire tali messaggi più volte in contemporanea
 
 -record(state, {numberOfNotEnoughFriendRequest, chain, transactionPool, currentChainLength, activeMiner, updateInAnalysis}).
 
@@ -37,10 +39,10 @@ nodeMonitor(NodePID) ->
     end.
 
 % utilizzata per lanciare un nuovo nodo e il monitor per esso
-launchNode() -> 
+main() -> 
     NodePID = spawnNode(),
     spawn(fun() -> nodeMonitor(NodePID) end),
-    NodePID.
+    node_launched.
 
 %utilizzata per inizializzare un nuovo nodo, in particolare:
 % - initializza lo stato del nuovo nodo
@@ -165,7 +167,6 @@ loop(MyFriends, State) ->
             case TransactionFoundInTheList of
                 true ->
                     %se la transazione è già nella catena, non facciamo nulla
-                    nothingToDo,
                     loop(MyFriends, State);
                 false ->
                     %se non conoscevamo la transazione, la inseriamo nella lista della transazione da provare ad inserire nei prossimi blocchi
@@ -200,12 +201,10 @@ loop(MyFriends, State) ->
             % altrimenti è cambiata e il blocco deve essere stato scartato
             case CurrentHead =:= NewPreviousID of
                 false->
-                    %printChainAndList(NewChain, [self()]++["mindis"], self()),
                     NewState = State#state{
                         activeMiner = checkMining(false, State#state.transactionPool, State#state.chain)
                     };
                 true ->
-                    %printChainAndList(NewChain, [self()]++["minres"], self()),
                     NewState = State#state{
                         chain = NewChain, 
                         transactionPool = NewTransactionPool, 
@@ -222,8 +221,7 @@ loop(MyFriends, State) ->
             case lists:member(BlockID, UpdateInAnalysis) of 
                 true -> 
                     % l'update per il blocco ricevuto è già in corso e non deve esserne instanziata 
-                    % una ulteriore gestione per esso
-                    nothingToDo,
+                    % una ulteriore gestione per esso 
                     loop(MyFriends, State);
                 false -> 
                     % non vi è nessuna update in corso per il blocco ricevuto, viene quindi instanziato 
@@ -250,7 +248,6 @@ loop(MyFriends, State) ->
                                 transactionPool = CurrentTransactionPool -- TransactionToRemove,
                                 currentChainLength = NewChainLength
                             },
-                            %printChainAndList(NewChain, [self()]++["upres"], self()),
                             loop(MyFriends, StateWithNewChain);
                         false ->
                             loop(MyFriends, NewState)
@@ -344,12 +341,12 @@ launchSenderToAllFriend(FriendList, Message) ->
     %se questo muore per qualche ragione, venga rilanciato
     put(MessageSenderPID, {messageSender, FriendList, Message}).
 
-getHead([]) -> none;
+getHead({chain, none, _}) -> none;
 getHead(CurrentChain) ->
 	{chain, IdHead, CurrentDictChain} = CurrentChain,
 	case dict:find(IdHead, CurrentDictChain) of
 		{ok, Head} -> Head;
-		error -> nothingToDo %abbiamo già IdHead come testa, l'errore non si verificherà mai
+		error -> none %abbiamo già IdHead come testa, l'errore non si verificherà mai
 	end.
 
 getBlockFromDictChain(CurrentDictChain, BlockID) ->
@@ -733,9 +730,9 @@ printChain(Chain, ActorPID) ->
     spawn(fun()-> printDictChain(Head, DictChain, ActorPID, "") end).
 
 % stampa la catena e il pid del nodo
-printChainAndList(Chain, StartStringsList, ActorPID) ->
-    {chain, Head, DictChain} = Chain,
-    spawn(fun()-> printDictChain(Head, DictChain, ActorPID, xToString(StartStringsList)) end).
+% printChainAndList(Chain, StartStringsList, ActorPID) ->
+%     {chain, Head, DictChain} = Chain,
+%     spawn(fun()-> printDictChain(Head, DictChain, ActorPID, xToString(StartStringsList)) end).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -743,61 +740,61 @@ printChainAndList(Chain, StartStringsList, ActorPID) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-test_nodes() ->
-    _T = spawn(teacher_node, main, []),
-	sleep(1),
-    NodeList0 = launchNNode(8, []),
-    sleep(2),
-    spawn(fun () -> sendTransactions(NodeList0, 0) end),
+% test_nodes() ->
+%     _T = spawn(teacher_node, main, []),
+%     sleep(1),
+%     NodeList0 = launchNNode(8, []),
+%     sleep(2),
+%     spawn(fun () -> sendTransactions(NodeList0, 0) end),
 
-    sleep(rand:uniform(5)),
-    PIDNodeToKill1 = lists:nth(rand:uniform(length(NodeList0)), NodeList0),
-    exit(PIDNodeToKill1, manually_kill),
-    NodeList1 = NodeList0 -- [PIDNodeToKill1],
+%     sleep(rand:uniform(5)),
+%     PIDNodeToKill1 = lists:nth(rand:uniform(length(NodeList0)), NodeList0),
+%     exit(PIDNodeToKill1, manually_kill),
+%     NodeList1 = NodeList0 -- [PIDNodeToKill1],
 
-    sleep(rand:uniform(10)),    
-    PIDNodeToKill2 = lists:nth(rand:uniform(length(NodeList1)), NodeList1),
-    exit(PIDNodeToKill2, manually_kill),
-    NodeList2 = NodeList1 -- [PIDNodeToKill2],
+%     sleep(rand:uniform(10)),    
+%     PIDNodeToKill2 = lists:nth(rand:uniform(length(NodeList1)), NodeList1),
+%     exit(PIDNodeToKill2, manually_kill),
+%     NodeList2 = NodeList1 -- [PIDNodeToKill2],
     
-    sleep(rand:uniform(20)),
-    PIDNodeToKill3 = lists:nth(rand:uniform(length(NodeList2)), NodeList2),
-    exit(PIDNodeToKill3, manually_kill),
-    NodeList = NodeList2 -- [PIDNodeToKill3],
+%     sleep(rand:uniform(20)),
+%     PIDNodeToKill3 = lists:nth(rand:uniform(length(NodeList2)), NodeList2),
+%     exit(PIDNodeToKill3, manually_kill),
+%     NodeList = NodeList2 -- [PIDNodeToKill3],
 
-    %sleep(rand:uniform(10)),
-    %PIDNodeToKill4 = lists:nth(rand:uniform(length(NodeList)), NodeList),
-    %WrongList = {1, 2},
-    %io:format("Trying to kill node ~p with block ~p \n",[PIDNodeToKill4, WrongList]),
-    %PIDNodeToKill4 ! {friendsAdded, WrongList},
+%     %sleep(rand:uniform(10)),
+%     %PIDNodeToKill4 = lists:nth(rand:uniform(length(NodeList)), NodeList),
+%     %WrongList = {1, 2},
+%     %io:format("Trying to kill node ~p with block ~p \n",[PIDNodeToKill4, WrongList]),
+%     %PIDNodeToKill4 ! {friendsAdded, WrongList},
 
-    %sleep(rand:uniform(10)),
-    %PIDNodeToKill5 = lists:nth(rand:uniform(length(NodeList)), NodeList),
-    %WrongTransaction = [1,2],
-    %io:format("Trying to kill node ~p with block ~p \n",[PIDNodeToKill5, WrongTransaction]),
-    %PIDNodeToKill5 ! {transactionNotInTheChain, WrongTransaction},
+%     %sleep(rand:uniform(10)),
+%     %PIDNodeToKill5 = lists:nth(rand:uniform(length(NodeList)), NodeList),
+%     %WrongTransaction = [1,2],
+%     %io:format("Trying to kill node ~p with block ~p \n",[PIDNodeToKill5, WrongTransaction]),
+%     %PIDNodeToKill5 ! {transactionNotInTheChain, WrongTransaction},
 
-    %sleep(rand:uniform(10)),
-    %Nonce2 = make_ref(),
-    %global:send(teacher_node, {get_friends, self(), Nonce2}),
-    %receive
-    %    {friends, Nonce2, SecondNodeList} ->
-    %        io:format("Teacher list: ~p \n",[SecondNodeList])
-    %end,
+%     %sleep(rand:uniform(10)),
+%     %Nonce2 = make_ref(),
+%     %global:send(teacher_node, {get_friends, self(), Nonce2}),
+%     %receive
+%     %    {friends, Nonce2, SecondNodeList} ->
+%     %        io:format("Teacher list: ~p \n",[SecondNodeList])
+%     %end,
 
-    sleep(60),
-    [N ! {print_chain} || N <- NodeList],
-    sleep(15),
-    test_launched.
+%     sleep(60),
+%     [N ! {print_chain} || N <- NodeList],
+%     sleep(15),
+%     test_launched.
 
-launchNNode(0, NodeList) ->
-    NodeList;
-launchNNode(N, NodeList) ->
-    launchNNode(N-1, NodeList ++ [launchNode()]).
+% launchNNode(0, NodeList) ->
+%     NodeList;
+% launchNNode(N, NodeList) ->
+%     launchNNode(N-1, NodeList ++ [launchNode()]).
 
-sendTransactions(_, 20) ->
-    nothingToDo;
-sendTransactions(NodeList, I) ->
-    lists:nth(rand:uniform(length(NodeList)), NodeList) ! {push, {make_ref(), list_to_atom("Transazione" ++ integer_to_list(I))}},
-    receive after rand:uniform(50)*10 -> ok end,
-    sendTransactions(NodeList, I+1).
+% sendTransactions(_, 20) ->
+%     nothingToDo;
+% sendTransactions(NodeList, I) ->
+%    lists:nth(rand:uniform(length(NodeList)), NodeList) ! {push, {make_ref(), list_to_atom("Transazione" ++ integer_to_list(I))}},
+%    receive after rand:uniform(50)*10 -> ok end,
+%    sendTransactions(NodeList, I+1).

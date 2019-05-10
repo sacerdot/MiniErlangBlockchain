@@ -1,6 +1,6 @@
 -module(chain_tools).
 -export([buildInitChain/1,reconstructing/4,searchBlock/2,checkBlock/1]).
--import (proof_of_work , [solve/1,check/2]).
+% -import (proof_of_work , [solve/1,check/2]).
 -import (utils , [sendMessage/2,sleep/1]).
 -define(TIMEOUT_TO_ASK, 5000).
 
@@ -74,7 +74,7 @@ searchBlock(ID_Search,Chain) ->
     end.
 
 checkBlock({_, ID_Prev,ListT,Solution}) -> 
-    check({ID_Prev,ListT},Solution);
+    proof_of_work:check({ID_Prev,ListT},Solution);
 % per evitare blocchi di una forma diversa
 checkBlock(_) -> 
     false.
