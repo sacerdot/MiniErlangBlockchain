@@ -19,6 +19,8 @@ blockGossiping(PidRoot,PidB,PidRestore,Blocks) ->
                     % se lo conosco non faccio nulla
                     blockGossiping(PidRoot,PidB,PidRestore,Blocks);
                 false ->
+                    io:format("Nuovo B arrivato: ~p~n",[Blocco]),
+
                     % io:format("[~p] Ho ricevuto questa update: ~p~n",[PidRoot,Blocco]),
                     % se non lo conosco:
                     % avvio il gossiping (chiedo a PidRoot gli amichetti) 

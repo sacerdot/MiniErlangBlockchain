@@ -8,6 +8,7 @@
 
 %|------------INIT--------------------|
 %| net_adm:ping('teacher_node@yyy').  |
+%|net_adm:ping('teacher@anto-P553UJ').|
 %| main:main().                       |
 %|------------------------------------|
 
@@ -21,7 +22,7 @@ load_module_act() ->
     compile:file('actors/miner_act.erl'), 
     compile:file('actors/reconstruct_act.erl'), 
     compile:file('utils.erl'),
-    % compile:file('teacher_node.erl'),
+    % compile:file('../teacher_node.erl'),
     % compile:file('proof_of_work.erl'),
     ok.  
 
