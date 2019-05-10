@@ -53,12 +53,12 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
           end,
       loop(Nodes, NewTransactionsList, Blocks, Heads, Nonces);
 
-    {update, NewBlock} ->   
+    {update, Sender, NewBlock} ->   
         case isBlockYet(Blocks, NewBlock) of % se NewBlock è già nella lista di blocchi
             false->      
             case  proof_of_work:check({element(2, NewBlock), element(3, NewBlock)}, element (4, NewBlock)) of
                 true ->  io:format("New Block added ~p~n",[NewBlock]),               
-                        comunicate_block(NewBlock, Nodes),
+                        comunicate_block(NewBlock, Nodes -- [Sender]),
                         NewTransactions = lists:subtract(TransactionsList, element(3, NewBlock)),
                         Friend  = randomFriend(Nodes),  
                         Ref = make_ref(), 
@@ -128,7 +128,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
                         false -> RdmElem =  randomFriend(Nodes),
                                 case element(2, NewBlock) of
                                         none -> is_first;
-                                        X -> sendMessage(RdmElem, {get_previous, self(), Nonce, X})
+                                        X ->    sendMessage(RdmElem, {get_previous, self(), Nonce, X})
                                 end,
                                 io:format("Head block received: ~p~n",[NewBlock]),
                                 loop (Nodes, TransactionsList, [NewBlock | Blocks], Heads, Nonces);
@@ -143,7 +143,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
           Y    -> findBlockGivenId(Blocks, element(1, Y))
         end,
         case Head of
-          none -> none;
+          none -> sendMessage (Sender, {head, Nonce, none});
           X    -> Sender! {add_head, Nonce, findHeadGivenId(Heads, element(1, ID))},
                   sendMessage (Sender, {head, Nonce, X}) %mando oltre al blocco, anche il riferimento alla testa
         end,
@@ -302,7 +302,7 @@ mining (MyNode, Transactions, IdPrev) ->
             Solution = proof_of_work:solve({IdPrev, ToMine}),
             NewBlock = {make_ref(),  IdPrev, ToMine, Solution},
             io:format("block mined...~n"), 
-            MyNode ! {update, NewBlock},
+            MyNode ! {update, MyNode, NewBlock},
             MyNode ! {ask_transactions, ToMine}
     end.
 
