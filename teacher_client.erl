@@ -23,7 +23,7 @@ print_chain(Node,Block) ->
        Nonce = make_ref(),
        Node ! {get_previous, self(), Nonce, Prev},
        receive
-          {head, Nonce, N} -> print_chain(Node,N)
+          {previous, Nonce, N} -> print_chain(Node,N)
        after 5000 -> io:format("nessuna risposta da ~p~n", [Node])
        end
     end
@@ -53,6 +53,7 @@ test1() ->
    [ push_trans(F,T) || T <- Trans ]
   end,
  [ PT(F) || F <- Friends ],
+ receive after 5000 -> true end,
  [ print_chain(F) || F <- Friends ]
  .
 
@@ -79,24 +80,25 @@ fake_node(B1,R1,B2) ->
 test2() ->
  R1 = make_ref(),
  TL1 = [{make_ref(),"T1"}],
- PB1 = {R1, none, TL1},
+ PB1 = {none, TL1},
  Solve1 = proof_of_work:solve(PB1),
  B1 = {R1, none, TL1, Solve1},
 
  R2 = make_ref(),
  TL2 = [{make_ref(),"T2"}],
- PB2 = {R2, R1, TL2},
+ PB2 = {R1, TL2},
  Solve2 = proof_of_work:solve(PB2),
  B2 = {R2, R1, TL2, Solve2},
 
+ Friends = get_friends() ,
  case get_friends() of
     [F|_] ->
       io:format("seleziono amico ~p~n",[F]),
-      spawn(fun () -> fake_node(B1,R1,B2) end),
+      G = spawn(fun () -> fake_node(B1,R1,B2) end),
       io:format("update della chain a ~p~n",[F]),
-      F ! {update, self(), B2 },
+      F ! {update, G, B2 },
       receive after 5000 -> true end,
-      print_chain(F)
+      [ print_chain(H) || H <- Friends ]
   ; _ -> io:format("Non ci sono amici per il test~n")
  end
  .
