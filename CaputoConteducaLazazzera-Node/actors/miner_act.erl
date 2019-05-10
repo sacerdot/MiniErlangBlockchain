@@ -1,7 +1,5 @@
 -module(miner_act).
-
 -export([start_M_act/2]).
-
 -import(utils, [sleep/1]).
 
 %! ---- Behavior di Miner Act -----
