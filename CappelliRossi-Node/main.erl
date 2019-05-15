@@ -1,5 +1,5 @@
 -module(main).
--export([main/0, sleep/1, retreive_ID_blocco_testa/1, sendMessageToAllFriends/2]).
+-export([main/0, sleep/1]).
 -on_load(compileFiles/0).
 
 % Uso:
@@ -8,12 +8,15 @@
 
 % ====================== FUNZIONI DI LIBRERIA =================================
 
-%funzione chiamata come prima istruzione del processo principale per compilare tutti i file degli attori ausiliari
+%funzione chiamata come prima istruzione del processo principale per compilare
+% tutti i file degli attori ausiliari
 compileFiles() ->
-  compile:file('blockchain_handler.erl'),
   compile:file('friends_library.erl'),
-  compile:file('get_previous_handler.erl'),
   compile:file('miner.erl'),
+  compile:file('tr_handler.erl'),
+  compile:file('bl_handler.erl'),
+  compile:file('gp_handler.erl'),
+  compile:file('ch_rec_handler.erl'),
   compile:file('../proof_of_work.erl'),
   ok.
 
@@ -30,20 +33,28 @@ sendMessageToAllFriends(Msg,Friends_list) ->
     end
                 end, Friends_list).
 
-% identificazione dell'id dell'ultimo blocco inserito nella lista
-retreive_ID_blocco_testa(BlockChain) ->
-  case BlockChain of
-    [] -> none;
-    _ ->
-      [{ID_blocco_testa, _, _, _} | _]  = BlockChain,
-      ID_blocco_testa
-  end.
+main_attore_get_head(PID, Friends_list) ->
+    case Friends_list =/= [] of
+    	true ->
+		    Random_friend = lists:nth(rand:uniform(length(Friends_list)), Friends_list),
+		    Nonce = make_ref(),
+		    Random_friend ! {get_head, self(), Nonce},
+		    receive
+		      {head, Nonce, Block} ->
+		      	io:format("Ricevuto head ~p~n", [PID]),
+		        PID ! {update, Random_friend, Block}
+		    after 10000 -> exit(normal)
+		    end;
+		  false ->
+		  	exit(normal)
+		end.
 
 % ======================== LOOP ===============================================
-loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain) ->
+loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list) ->
   %sleep(1),
   Self = self(),
-  % io:format("Loop started - node ~p~n", [Self]),
+  {Trh, Blh, Af, Cn, Cl} = Actors_list,
+  %io:format("Loop started - node ~p~n", [Self]),
   %io:format("Node ~p -> Friends_list ~p~n", [Self, Friends_list]),
   %io:format("Node ~p -> Friends_list_ask ~p~n", [Self, Friends_list_ask]),
 
@@ -54,53 +65,67 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
       %io:format("Node ~p -> ping from ~p~n", [Self, Sender]),
       Sender ! {pong, Nonce},
       %io:format("Node ~p -> pong to ~p~n", [Self, Sender]),
-      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
+      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+
 
   % ricezione di un messaggio exit a casusa della morte di un nostro figlio
     {'EXIT', Pid, Msg} ->
-      %io:format("Morte di ~p~n", [Pid]),
-      %io:format("Attori ~p~n", [Actors_list]),
-      Atomi_attori = [Attore || {Attore, P} <- Actors_list, P =:= Pid],
-      case length(Atomi_attori) =:= 0 of
-        false ->
-          [Actor_name | _] = Atomi_attori,
-          %io:format("A= ~p~n", [Actor_name]),
-          case Actor_name of
-            get_previous_handler_CR ->
-              %io:format("Morte di get_previous_handler_CR. Riavvio del figlio in corso...~n"),
-              Gph = spawn_link(fun() -> get_previous_handler:get_previous_handler_main([]) end),
-              register(get_previous_handler_CR, Gph),
-              % %io:format("Figli:~n~p", [[{get_previous_handler_CR, Gph}] ++ Actors_list -- [{get_previous_handler_CR, Pid}]]),
-              loop(Friends_list, Friends_list_ask, Watcher_list, [{get_previous_handler_CR, Gph}] ++ Actors_list -- [{get_previous_handler_CR, Pid}], Transactions_list, BlockChain);
-            adder_friends_CR ->
-              %io:format("Morte di adder_friends_CR. Riavvio del figlio in corso...~n"),
-              Af = spawn_link(fun() -> friends_library:adder_friends(Self) end),
-              register(adder_friends_CR, Af),
-              loop(Friends_list, Friends_list_ask, Watcher_list, [{adder_friends_CR, Af}] ++ Actors_list -- [{adder_friends_CR, Pid}], Transactions_list, BlockChain);
-            checker_list_CR ->
-              %io:format("Morte di checker_list_CR. Riavvio del figlio in corso...~n"),
-              Cl = spawn_link(fun() -> friends_library:checker_list(Self) end),
-              register(checker_list_CR, Cl),
-              loop(Friends_list, Friends_list_ask, Watcher_list, [{checker_list_CR, Cl}] ++ Actors_list -- [{checker_list_CR, Pid}], Transactions_list, BlockChain);
-            checker_nonce_CR ->
-              %io:format("Morte di checker_nonce_CR. Riavvio del figlio in corso...~n"),
-              Cn = spawn_link(fun() -> friends_library:checker_Nonce(Self, []) end),
-              register(checker_nonce_CR, Cn),
-              loop(Friends_list, Friends_list_ask, Watcher_list, [{checker_nonce_CR, Cn}] ++ Actors_list -- [{checker_nonce_CR, Pid}], Transactions_list, BlockChain);
-            _ ->  loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
-          end;
-        true when Msg =/= normal ->
-          Friend_list = [ Y || {_,Y,X} <- Watcher_list, Pid =:= X],
+      %io:format("Morte di ~p, msg = ~p~n", [Pid, Msg]),
+      case Pid of
+
+      	Trh when Msg =/= normal ->
+      		io:format("Muore ~p, msg = ~p~n", [Pid, Msg]),
+      		Blh ! {dead, Self},
+				  New_trh = spawn_link(fun() -> tr_handler:tr_handler_actor(Self, [], []) end),
+ 					New_blh = spawn_link(fun() -> bl_handler:bl_handler_actor(Self, New_trh, []) end),
+  				New_trh ! {send_pid_bl_handler, New_blh},
+  				spawn(fun() -> main_attore_get_head(New_blh, Friends_list) end),
+  				loop(Friends_list, Friends_list_ask, Watcher_list, {New_trh, New_blh, Af, Cn, Cl});
+
+      	Blh when Msg =/= normal->
+      		io:format("Muore ~p, msg = ~p~n", [Pid, Msg]),
+					Trh ! {dead, Self},
+				  New_trh = spawn_link(fun() -> tr_handler:tr_handler_actor(Self, [], []) end),
+ 					New_blh = spawn_link(fun() -> bl_handler:bl_handler_actor(Self, New_trh, []) end),
+  				New_trh ! {send_pid_bl_handler, New_blh},
+  				spawn(fun() -> main_attore_get_head(New_blh, Friends_list) end),
+  				loop(Friends_list, Friends_list_ask, Watcher_list, {New_trh, New_blh, Af, Cn, Cl});
+
+  			Af ->
+      		io:format("Muore ~p, msg = ~p~n", [Pid, Msg]),
+          New_af = spawn_link(fun() -> friends_library:adder_friends(Self) end),
+          register(adder_friends_CR, Af),
+          loop(Friends_list, Friends_list_ask, Watcher_list, {Trh, Blh, New_af, Cn, Cl});
+
+      	Cl ->
+      		io:format("Muore ~p, msg = ~p~n", [Pid, Msg]),
+          New_cl = spawn_link(fun() -> friends_library:adder_friends(Self) end),
+          register(checker_list_CR, New_cl),
+          loop(Friends_list, Friends_list_ask, Watcher_list, {Trh, Blh, Af, Cn, New_cl});
+
+      	Cn ->
+      		io:format("Muore ~p, msg = ~p~n", [Pid, Msg]),
+          New_cn = spawn_link(fun() -> friends_library:adder_friends(Self) end),
+					register(checker_nonce_CR, New_cn),
+          loop(Friends_list, Friends_list_ask, Watcher_list, {Trh, Blh, Af, New_cn, Cl});
+
+  			_ when Msg =/= normal ->
+  				Friend_list = [ Y || {_,Y,X} <- Watcher_list, Pid =:= X],
           case length(Friend_list) =/= 0 of
             true ->
               [Friend | _] = Friend_list,
-              %io:format("Morte di Watcher ~p. Riavvio del figlio in corso...~n", [Pid]),
+              io:format("Morte di Watcher ~p. Riavvio del figlio in corso...~n", [Pid]),
               W = spawn_link(fun() -> friends_library:watch(Self, Friend) end),
-              loop(Friends_list, Friends_list_ask, [{watcher, Friend, W}] ++ Watcher_list -- [{watcher, Friend, Pid}], Actors_list, Transactions_list, BlockChain);
-            false ->  loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+              loop(Friends_list, Friends_list_ask, [{watcher, Friend, W}] ++ Watcher_list -- [{watcher, Friend, Pid}], Actors_list);
+            false -> 
+            	loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
           end;
-        _ ->  loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
-      end;
+
+  			_ ->
+  				loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
+
+  		end;
+
 
   % ricezione di un messaggio get_friends da parte di un attore
   % SITUAZIONE: un attore ha bisogno di amici e ci chiede la nostra lista di amici
@@ -124,7 +149,8 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
         end,
       friends_library:sendMessageToFriend({friends, Nonce, New_friends_list}, Sender),
       %io:format("Node ~p -> friends to ~p~n", [Self, Sender]),
-      loop(New_friends_list, New_friends_list_ask, New_Watcher_list, Actors_list, Transactions_list, BlockChain);
+      loop(New_friends_list, New_friends_list_ask, New_Watcher_list, Actors_list);
+
 
   % ricezione di un messaggio friends da parte di un nostro amico
   % SITUAZIONE: precedentemente abbiamo chiesto la lista di amici ad un nostro amico e lui ce la invia
@@ -137,7 +163,8 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
         _ ->
           checker_nonce_CR ! {check_nonce, Self, Nonce, Friends_list_received}
       end,
-      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
+      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+
 
   % ricezione di un messaggio nonce_checked da parte dell'attore secondario checker_nonce
   % SITUAZIONE: il Nonce tra i messaggi get_friends e friends scambiati con un nostro amico corrispondono
@@ -156,13 +183,14 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
                 _ ->
                   adder_friends_CR ! {add_friends, Self, List_tmp, Friends_list, Friends_list_ask, Watcher_list}
               end,
-              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
+              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
             false ->
-              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
           end;
         false ->
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
+
 
   % ricezione di un messaggio friends_added da parte dell'attore secondario adder_friends
   % SITUAZIONE: l'attore secondario adder_friends ha aggiornato la nostra lista di amici
@@ -177,11 +205,8 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
           %io:format("Node ~p -> Added friends~n", [Self]),
           case length(New_friends_list) =:= 3 of
             true ->
-              case length(BlockChain) =:= 0 of
-                true -> spawn(fun() -> blockchain_handler:main_attore_get_head(Self, New_friends_list) end);
-                false -> ignore
-              end,
-              loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list, Transactions_list, BlockChain);
+            	% spawn(fun() -> main_attore_get_head(Blh, New_friends_list) end),
+              loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list);
             false ->
               case length(New_friends_list) =:= 0 of
                 true ->
@@ -191,12 +216,9 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
                     _ ->
                       friends_library:sendMessageToTeacher({get_friends, Self, make_ref()})
                   end,
-                  loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list, Transactions_list, BlockChain);
+                  loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list);
                 false ->
-                  case length(BlockChain) =:= 0 of
-                    true -> spawn(fun() -> blockchain_handler:main_attore_get_head(Self, New_friends_list) end);
-                    false -> ignore
-                  end,
+                  % spawn(fun() -> main_attore_get_head(Blh, New_friends_list) end),
                   case length(New_friends_list_ask) =:= 0 of
                     true ->
                       case global:whereis_name(teacher_node) of
@@ -205,23 +227,24 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
                         _ ->
                           friends_library:sendMessageToTeacher({get_friends, Self, make_ref()})
                       end,
-                      loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list, Transactions_list, BlockChain);
+                      loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list);
                     false ->
                       Random_friend = lists:nth(rand:uniform(length(New_friends_list)), New_friends_list),
                       Send = friends_library:sendMessageToFriend({get_friends, Self, make_ref()}, Random_friend),
                       %io:format("Node ~p -> get_friends to ~p~n", [self(), Random_friend]),
                       case Send of
                         true ->
-                          loop(New_friends_list, New_friends_list_ask -- [Random_friend], New_watcher_list, Actors_list, Transactions_list, BlockChain);
+                          loop(New_friends_list, New_friends_list_ask -- [Random_friend], New_watcher_list, Actors_list);
                         false ->
-                          loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list, Transactions_list, BlockChain)
+                          loop(New_friends_list, New_friends_list_ask, New_watcher_list, Actors_list)
                       end
                   end
               end
           end;
         false ->
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
+
 
   % ricezione di un messaggio get_list da parte dell'attore scondario checker_list
   % SITUAZIONE: ogni 10 secondi l'attore secondario checker_list vuole conoscere la nostra lista di amici per
@@ -232,10 +255,11 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
         true ->
           %io:format("Node ~p -> get_list from ~p ~n", [Self, Sender]),
           Sender ! {list, Self, Friends_list},
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
         false ->
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
+
 
   % ricezione di un messaggio need_friends da parte dell'attore scondario checker_list
   % SITUAZIONE: l'attore secondario checker_list ha verificato che non abbiamo 3 amici e ce lo notifica
@@ -253,150 +277,83 @@ loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_lis
                 _ ->
                   friends_library:sendMessageToTeacher({get_friends, Self, make_ref()})
               end,
-              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
+              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
             false ->
               Random_friend = lists:nth(rand:uniform(length(Friends_list)), Friends_list),
               Send = friends_library:sendMessageToFriend({get_friends, Self, make_ref()}, Random_friend),
               %io:format("Node ~p -> get_friends to ~p~n", [self(), Random_friend]),
               case Send of
                 true ->
-                  loop(Friends_list, Friends_list_ask -- [Random_friend], Watcher_list, Actors_list, Transactions_list, BlockChain);
+                  loop(Friends_list, Friends_list_ask -- [Random_friend], Watcher_list, Actors_list);
                 false ->
-                  loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+                  loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
               end
           end;
         false ->
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
+
 
   % ricezione messaggio di morte di un amico da parte del watcher che lo monitora
     {dead, Sender, Friend} ->
       case lists:member({watcher, Friend, Sender}, Watcher_list) of
         true ->
           %io:format("Node ~p -> Dead node: ~p~n",[self(), Friend]),
-          loop(Friends_list -- [Friend], Friends_list_ask -- [Friend], Watcher_list -- [{watcher, Friend, Sender}], Actors_list, Transactions_list, BlockChain);
+          loop(Friends_list -- [Friend], Friends_list_ask -- [Friend], Watcher_list -- [{watcher, Friend, Sender}], Actors_list);
         false ->
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
 
-	  % ricezione messaggio update = ricezione di un blocco
-	  % * SITUAZIONE: qualcuno ci invia un blocco
-	  % * COSA FARE: si verifca se il blocco è già nella nostra catena, in caso
-	  %   affermativo lo si scarta, in caso negativo si controlla che il blocco
-	  %   sia corretto poi si determina cosa fare del blocco.
+
+    % ricezione blocco: controllo che il blocco sia una quadrupla poi lo invio 
+    % al gestore di blocchi
     {update, Sender, Block} ->
-    	case Block of
-    		{ID_block, ID_previous_block, Block_transactions, Solution} ->
-    			case lists:member({ID_block, ID_previous_block, Block_transactions, Solution}, BlockChain) of
-		        % blocco già presente nella blockchain
-		        true ->
-		          % io:format("Mittente ~p invia blocco noto: ", [Sender]),
-		          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
-		        % blocco non presente nella blockchain
-		        false ->
-		          % io:format("Mittente ~p invia blocco non noto: ~n", [Sender]),
-		          {New_Tr_List, New_Blockchain} = blockchain_handler:rilevato_blocco_sconosciuto(Self,Sender,Friends_list,{ID_block, ID_previous_block, Block_transactions, Solution},Transactions_list,BlockChain),
-		          %io:format("Ricezione blocco ignoto.~n Tansaction_list:~n~p~n Block_list: ~n~p~n", [New_Tr_List, New_Blockchain]),
-              loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, New_Tr_List, New_Blockchain)
-		      end;
-    		_ -> loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list, BlockChain)
-    	end;
-
-	  % ricezione messaggio new_chain = l'attore che stava ricostruendo la catena
-	  % ha terminato ed invia la parte di catena ricostruita all'attore princpiale.
-	  % Si confrontano le lunghezze delle due parti di catena: se la nostra catena
-	  % è più lunga si scarta la lista ricevuta, se è più lunga la catena ricevuta
-	  % aggiorniamo la nostra catena
-    {new_chain, BlocksToAdd_list} ->
-      case blockchain_handler:isLonger(BlockChain,BlocksToAdd_list) of
-        % la nostra catena è più lunga
-        true ->
-        	% io:format("L'attore principale riceve la nuova catena ma la sua e' più lunga ~n"),
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain);
-        % la nostra catena è più corta. Otteniamo l'indice del primo blocco da
-        % sostituire
-        Index ->
-          {New_blockChain, New_transactions_list} = blockchain_handler:blockChainReconstruction(BlockChain, BlocksToAdd_list, Transactions_list, Index, Self),
-          % io:format("L'attore principale riceve la nuova catena:~n~p~n", [New_blockChain]),
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, New_transactions_list, New_blockChain)
+      case Block of
+        {_, _, _, _} ->
+          % io:format("main - ricevuto blocco da ~p~n", [Sender]),
+          Blh ! {update, Sender, Block},
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+        _ ->
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
 
-	  % ricezione messaggio push = ricezione di una transazione
-	  %  * SITUAZIONE: qualcuno ci invia una transazione
-	  %  * COSA FARE: si verifica se la transazione è conosciuta (contenuta in un
-	  %    blocco o nella lista di transazioni), se non è conosciuta la si
-	  %    inserisce in coda nella lista di transazioni, la si invia a tutti gli
-	  %    amici e si verifica se avviare il minatore
+
+    % richiesta di invio del messaggio Msg a tutti i nostri amici
+    {send_msg_to_all_friends, Msg} ->
+      % io:format("main - send_msg_to_all_friends~p~n", [Msg]),
+      sendMessageToAllFriends(Msg, Friends_list),
+      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+
+
+    % ricezione transazione: controllo che la transazione sia una coppia la 
+    % invio al gestore di transazioni
     {push, Transazione} ->
-    	case Transazione of
-    		{_, _} ->
-	    		case lists:member(Transazione, Transactions_list) or miner:find_transaction_in_block_list(Transazione, BlockChain) of
-		        % Transazione conosciuta
-		        true ->
-		          % io:format("Ricevuta transazione duplicata~n"),
-		          loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list, BlockChain);
-		        % Transazione sconosciuta: la si invia a tutti gli amici e si verifica
-		        % se il minatore sta minando
-		        false ->
-		          % io:format("Ricevuta transazione ~p~n", [Transazione]),
-		          sendMessageToAllFriends({push, Transazione}, Friends_list),
-		          case whereis(minerCR) of
-		            % se il minatore non sta minando, si iniziano a minare le prime 10
-		            % transazioni della lista (se ce ne sono meno di 10 si minano tutte)
-		            undefined ->
-		              miner:call_miner(Self, BlockChain, lists:sublist(Transactions_list ++ [Transazione],1,10)),
-		              loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list ++ [Transazione], BlockChain);
-		            % se il minatore sta già minando si controlla quante transazioni ci
-		            % sono nella lista: se sono meno di 10 occorre uccidere il minatore
-		            % e lo si fa ripartire
-		            PID_miner ->
-		              spawn(fun() -> miner:miner_restarter(PID_miner, Self, BlockChain, Transactions_list ++ [Transazione]) end),
-		              loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list ++ [Transazione], BlockChain)
-		          end
-	      	end;
-    		_ -> loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list, BlockChain)
-    	end;
-    		
-	  % ricezione messaggio get_previous:
-	  %  * SITUAZIONE: qualcuno ci chiede un blocco (ID_blocco_precedente) che
-	  %    non conosce
-	  %  * COSA FARE: dobbiamo o rispondere subito se conosciamo il blocco, o
-	  %    salvarci la richiesta e rispondere non appena entriamo a conoscenza di
-	  %    quel blocco
-    {get_previous, Mittente, Nonce, ID_blocco_precedente} ->
-      % verifico se conosco il blocco (= è nella mia blockchain)
-      case get_previous_handler:find_BlockE(ID_blocco_precedente, BlockChain) of
-        % non conosco il blocco -> passo il messaggio all'attore che si occupa
-        % di gestire questa richiesta
-        false ->
-          % io:format("Main riceve get_previous con blocco sconosciuto~n"),
-          case whereis(get_previous_handler) of
-		        undefined -> ignore;
-		        _ ->
-		          get_previous_handler ! {get_previous, Mittente, Nonce, ID_blocco_precedente}
-		      end;
-        % conosco il blocco -> restituisco il blocco
-        Blocco ->
-          % io:format("Main riceve get_previous con blocco conosciuto~n"),
-          Mittente ! {previous, Nonce, Blocco}
-      end,
-      loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list, BlockChain);
-
-	  % ricezione messaggio get_head:
-	  %  * SITUAZIONE: qualcuno ci chiede la cima dello stack
-	  %  * COSA FARE: restituiamo il blocco di testa della blockchain
-    {get_head, Mittente, Nonce} ->
-      case length(BlockChain) =:= 0 of
-        true ->
-          loop(Friends_list, Friends_list_ask, Watcher_list,Actors_list, Transactions_list, BlockChain);
-        false->
-          [First_Block | _] = BlockChain,
-          % io:format("Main riceve get_head~n~p~n", [First_Block]),
-          Mittente ! {head, Nonce, First_Block},
-          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+      case Transazione of
+        {_, _} -> 
+          % io:format("ricevuta tr:~n~p~n", [Transazione]),
+          Trh ! {tr_received, Self, Transazione},
+          loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+        _ -> loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
       end;
+    
 
-    _ -> loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list, Transactions_list, BlockChain)
+    % ricezione messaggio get_previous: qualcuno ci chiede un blocco che non
+    % non conosce: inoltriamo la richiesta al gestore di blocchi
+    {get_previous, Mittente, Nonce, ID_blocco_precedente} ->
+      % io:format("main: riceve get_previous~n"),
+      Blh ! {get_previous, Mittente, Nonce, ID_blocco_precedente},
+      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+
+
+    % ricezione messaggio get_head: qualcuno ci chiede il blocco in cima allo
+    % stack. inoltriamo il messaggio al gestore di blocchi.
+    {get_head, Mittente, Nonce} ->
+      % io:format("main: riceve get_head~n"),
+      Blh ! {get_head, Mittente, Nonce},
+      loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list);
+
+
+    _ -> loop(Friends_list, Friends_list_ask, Watcher_list, Actors_list)
 
   end.
 
@@ -424,13 +381,14 @@ main() ->
   register(checker_list_CR, Cl),
   %io:format("Pid ~p -> checker_list registered ~n", [Cl]),
 
-  % dichiarazione handler get_previous
-  Gph = spawn_link(fun() -> get_previous_handler:get_previous_handler_main([]) end),
-  register(get_previous_handler_CR, Gph),
+  % dichiarazione gestore transazioni
+  Trh = spawn_link(fun() -> tr_handler:tr_handler_actor(Self, [], []) end),
 
-  % dichiarazione minatore
-  Miner = spawn(fun() -> miner:miner_main(Self, none, []) end),
-  register(minerCR, Miner),
+  % dichiarazione gestore blocchi
+  Blh = spawn_link(fun() -> bl_handler:bl_handler_actor(Self, Trh, []) end),
+
+  % invio al gestore di tr il pid del gestore dei blocchi
+  Trh ! {send_pid_bl_handler, Blh},
 
   case global:whereis_name(teacher_node) of
     undefined -> ignore;
@@ -438,9 +396,10 @@ main() ->
     _ ->
       friends_library:sendMessageToTeacher({get_friends, Self, make_ref()})
   end,
+  
+  io:format("Attore avviato ~p~n", [Self]),
+  loop([], [], [], {Trh, Blh, Af, Cn, Cl}).
 
-  %io:format("Attore avviato ~p~n", [Self]),
-  loop([], [], [], [{adder_friends_CR, Af},{checker_nonce_CR, Cn}, {checker_list_CR, Cl}, {get_previous_handler_CR, Gph}], [], []).
 
 isAlive(Pid) ->
     process_flag(trap_exit, true),
@@ -460,10 +419,6 @@ isAlive(Pid) ->
         case whereis(checker_list_CR) of
           undefined -> ignore;
           _ -> unregister(checker_list_CR)
-        end,
-        case whereis(get_previous_handler_CR) of
-          undefined -> ignore;
-          _ -> unregister(get_previous_handler_CR)
         end,
         main()
     end.

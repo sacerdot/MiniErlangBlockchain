@@ -1,66 +1,33 @@
 -module(miner).
--import(proof_of_work , [solve/1,check/2]).
--export([call_miner/3, miner_restarter/4, find_transaction_in_block_list/2, miner_main/3]).
+-import(proof_of_work , [solve/1]).
+-import(main , [sleep/1]).
+-export([miner_actor/2]).
 
-% caso: ricerca di una transazione in un blocco della blockchain vuota
-find_transaction(_, BlockChain) when length(BlockChain) =:= 0 ->
-  false;
-% caso: ricerca di una transazione in un blocco della blockchain
-find_transaction(Transazione, BlockChain) ->
-  [{_, _, Transactions_list, _} | Tail]  = BlockChain,
-  case lists:member(Transazione, Transactions_list) of
-    true -> true;
-    false -> find_transaction(Transazione, Tail)
+% codice del Minatore:
+% si invia al gestore delle transazioni una richiesta per ricevere le transazioni
+% da minare. Se arriva la lista vuota si attende qualche secondo e si rilancia il 
+% codice. Se arrivano transazioni le si mina, si invia al main il blocco minato
+% e si riesegue il codice.
+miner_actor(Pid_attore_bl, PID_attore_tr) ->
+  % io:format("miner ~p started ~n", [self()]),
+
+  receive
+
+    % ricevo la lista vuota: attendo 3s e riavvio il miner 
+    % {tr_list, Sender, [], _} when Sender =:= PID_attore_tr ->
+    %   % io:format("miner riceve lista vuota~n"),
+    %   sleep(1),
+    %   miner_actor(Pid_attore_bl, PID_attore_tr);
+
+    % ricevo almeno una transazione: inizio a minare e invio il blocco al main.
+    % poi riavvio il miner
+    {tr_list, Sender, Tr_list, ID_blocco_testa} when Sender =:= PID_attore_tr ->
+      % io:format("miner riceve lista~p~n", [Tr_list]),
+      Soluzione = solve({ID_blocco_testa, Tr_list}),
+      % invio richiesta transazioni da minare
+      ID_block = make_ref(),
+      PID_attore_tr ! {give_me_tr, self(), Tr_list, ID_block},
+      Pid_attore_bl ! {update, Pid_attore_bl, {ID_block, ID_blocco_testa, Tr_list, Soluzione}},
+      miner_actor(Pid_attore_bl, PID_attore_tr)
+
   end.
-% funzione con eccezioni per la ricerca di una transazione nella blockchain, se
-% la trova restituisce true, false altrimenti
-find_transaction_in_block_list(Transazione, BlockChain) ->
-  try
-    find_transaction(Transazione, BlockChain)
-  catch
-    true -> true
-  end.
-
-% funzione che attiva un minatore e lo registra. Input necessari: PID
-% dell'attore principale, blockchain e lista di transazioni da minare
-call_miner(Main_actor_Pid, Blockchain, Transactions_list) ->
-  M = spawn(fun() -> miner_main(Main_actor_Pid,
-    main:retreive_ID_blocco_testa(Blockchain),Transactions_list)
-  end),
-  register(minerCR, M).
-  % io:format("Miner ~p created~n", [M]).
-
-% funzione che verifica se il minatore sta minando più o meno di 10 transazioni:
-% se ne sta minando di meno occorre stopparlo e farlo ripartire, se ne sta
-% minando di più non si fa nulla
-miner_restarter(PID_miner, Main_actor_Pid, BlockChain, Transactions_list) ->
-  case length(Transactions_list) =< 10 of
-    true ->
-      unregister(minerCR),
-      exit(PID_miner,kill),
-      % io:format("Miner killed~n"),
-      call_miner(Main_actor_Pid, BlockChain, Transactions_list);
-    false -> ignore
-  end.
-
-% MAIN DEL MINATORE
-% * input:
-%   - pid attore principale,
-%   - id ultimo blocco della lista
-%   - lista di transazioni da minare
-% * codice: se la lista di transazioni contiene almeno una transazione, il
-%     minatore inizia a minare chiamando proof_of_work:solve({...}).
-%     Nel momento in cui l'operazione termina con successo, si crea il blocco e
-%     lo si gira all'attore principale. Terminata la computazione, il minatore
-%     termina con successo.
-miner_main(Pid_attore_principale, ID_blocco_testa, Transactions_list) ->
-  case length(Transactions_list) > 0 of
-    true ->
-      Soluzione = solve({ID_blocco_testa, Transactions_list}),
-      % io:format("Blocco minato e inviato a: ~p~n", [Pid_attore_principale]),
-      Pid_attore_principale ! {update, self(),{make_ref(), ID_blocco_testa, Transactions_list, Soluzione}};
-    false ->
-      ignore
-  end,
-  unregister(minerCR).
-  %main:sleep(2).
