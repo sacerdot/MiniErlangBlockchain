@@ -58,7 +58,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
             false->      
             case  proof_of_work:check({element(2, NewBlock), element(3, NewBlock)}, element (4, NewBlock)) of
                 true ->  io:format("New Block added ~p~n",[NewBlock]),               
-                        comunicate_block(NewBlock, Nodes -- [Sender]),
+                        communicate_block(NewBlock, Nodes -- [Sender]),
                         NewTransactions = lists:subtract(TransactionsList, element(3, NewBlock)),
                         Friend  = randomFriend(Nodes),  
                         Ref = make_ref(), 
@@ -68,8 +68,8 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
                                     loop(Nodes, NewTransactions, [NewBlock|Blocks], [NewHead|Heads], Nonces);
                             notfound->    %se non trovo il blocco precedente lo chiedo
                                     io:format("asking for previous block~n"),                       
-                                    sendMessage (Friend, {get_previous, self(), Ref, element(2, NewBlock)}), 
-                                    sendMessage (Friend, {get_head, self(), Ref}),
+                                    sendMessage (Sender, {get_previous, self(), Ref, element(2, NewBlock)}), 
+                                    sendMessage (Sender, {get_head, self(), Ref}),
                                     loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, [Ref|Nonces]);        
                             Y ->   %se trovo il blocco presedente:
                                     case findHeadGivenId (Heads, element(1, Y)) of
@@ -128,7 +128,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
                         false -> RdmElem =  randomFriend(Nodes),
                                 case element(2, NewBlock) of
                                         none -> is_first;
-                                        X ->    sendMessage(RdmElem, {get_previous, self(), Nonce, X})
+                                        X ->  sendMessage(RdmElem, {get_previous, self(), Nonce, X})
                                 end,
                                 io:format("Head block received: ~p~n",[NewBlock]),
                                 loop (Nodes, TransactionsList, [NewBlock | Blocks], Heads, Nonces);
@@ -220,17 +220,15 @@ findBlockGivenId ([H|T], Id) ->
 %data una lista di blocchi restituisce true se il blocco viene trovato (ovvero se viene trovato un blocco con la stessa soluzione)
 %È stato necessario fare questo e non confrontare semplicementi i blocchi perché blochi con stesse transazioni, ID precedente e quindi soluzione 
 %possono avere ID diverso, in quanto frutto di diversi mining. 
+isBlockYet (_ , none) -> true;
+
 isBlockYet ([], _ ) -> false;
 
 isBlockYet ([H|T], Sol) ->
-   case Sol of
-   	none-> true;
-   	Y  ->
-         case element(4, H) == element (4, Y) of
+         case element(4, H) == element (4, Sol) of
             true  -> true;
             false -> isBlockYet (T, Sol)
-         end
-   end.
+         end.
 
 %Per comunicare le transazioni agli amici
 add_transaction (_, []) -> ok;
@@ -240,11 +238,11 @@ add_transaction (Trans, [H|T]) ->
     add_transaction (Trans, T).
 
 %Per comunicare i blocchi agli amici
-comunicate_block (_, []) -> ok;
+communicate_block (_, []) -> ok;
 
-comunicate_block (Block, [H|T]) ->
-    H ! {update, Block},
-    comunicate_block (Block, T).
+communicate_block (Block, [H|T]) ->
+    H ! {update, self(), Block},
+    communicate_block (Block, T).
 
 %Vengono aggiunti amici a meno che non se ne abbiano già 3
 addNode(Nodes, []) ->  Nodes;
@@ -344,6 +342,5 @@ main() ->
     spawn(fun () -> mining (Self, [], none) end),
     Ref = make_ref(),
     global:send(teacher_node, {get_friends, Self, Ref}),
-    %{teacher_node, teacher@localhost} ! {get_friends, self(), Ref},
     loop([],[],[],[], [Ref]).
     %net_adm:ping('docente@localhost'). spawn (fun() -> main:main() end).
