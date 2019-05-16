@@ -509,8 +509,8 @@ start(Self) ->
 
 
 main() ->
-   net_adm:ping('teacher@MacBook-Pro-di-Antonio.comune.bologna.it'),
-   sleep(2),
+%%   net_adm:ping('teacher@MacBook-Pro-di-Antonio.comune.bologna.it'),
+%%   sleep(2),
    Self = self(),
    io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER...~n", [self()]),
    spawn_link(fun() -> checkFriends(Self) end),
