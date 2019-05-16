@@ -66,14 +66,17 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
                             none -> NewHead = {element(1, NewBlock), 1},                                                        
                                     io:format("Head added ~n"),
                                     loop(Nodes, NewTransactions, [NewBlock|Blocks], [NewHead|Heads], Nonces);
-                            notfound->    %se non trovo il blocco precedente lo chiedo
+                            notfound ->    %se non trovo il blocco precedente lo chiedo
                                     io:format("asking for previous block~n"),                       
                                     sendMessage (Sender, {get_previous, self(), Ref, element(2, NewBlock)}), 
-                                    sendMessage (Sender, {get_head, self(), Ref}),
+                                    %spawn( fun() -> skimChain(element(1, NewBlock), element(1, NewBlock), Blocks, 0, false)),
+                                    self() ! {ask_blocks, element(1, NewBlock)},
+                                   % sendMessage (Sender, {get_head, self(), Ref}),
                                     loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, [Ref|Nonces]);        
                             Y ->   %se trovo il blocco presedente:
                                     case findHeadGivenId (Heads, element(1, Y)) of
                                             notfound ->%se non è una testa allora chiedo una testa, così sono sicuro di avere la catena più lunga
+                                                       self ! {ask_blocks, element(1, NewBlock)},
                                                        sendMessage (Friend, {get_head, self(), Ref}),
                                                        loop(Nodes, NewTransactions, [NewBlock|Blocks], Heads, [Ref|Nonces]);
                                             X ->       %se il blocco precedente è una testa allora NewBlock diventa la nuova testa
@@ -144,7 +147,7 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
         end,
         case Head of
           none -> sendMessage (Sender, {head, Nonce, none});
-          X    -> Sender! {add_head, Nonce, findHeadGivenId(Heads, element(1, ID))},
+          X    -> Sender! {add_head, findHeadGivenId(Heads, element(1, ID))},
                   sendMessage (Sender, {head, Nonce, X}) %mando oltre al blocco, anche il riferimento alla testa
         end,
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
@@ -152,12 +155,15 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
     {add_nonce, Nonce} ->
         loop(Nodes, TransactionsList, Blocks, Heads, [Nonce | Nonces]);
 
-    {add_head, Nonce, Head} ->
-        case lists:member(Nonce, Nonces) of
-           true ->  io:format("Head received and added: ~p~n",[Head]),
+    {add_head, Head} -> io:format("Head received and added: ~p~n",[Head]),
                     loop(Nodes, TransactionsList, Blocks, [Head| Heads], Nonces);
-           false -> loop(Nodes, TransactionsList, Blocks, Heads, Nonces)
-        end;
+
+   % {add_head, Nonce, Head} ->
+    %    case lists:member(Nonce, Nonces) of
+     %      true ->  io:format("Head received and added: ~p~n",[Head]),
+      %              loop(Nodes, TransactionsList, Blocks, [Head| Heads], Nonces);
+       %    false -> loop(Nodes, TransactionsList, Blocks, Heads, Nonces)
+        %end;
     
     % l'attore research comunica che il processo è terminato e ne viene chiamato uno nuovo, con la topologia aggiornata
     % se il node non conosce blocchi allora chiede agli amici (nel caso ne abbia) la testa di un blocco 
@@ -174,6 +180,10 @@ loop(Nodes, TransactionsList, Blocks, Heads, Nonces) ->
         Sel = self(),
         spawn(fun () -> research(Nodes, Sel) end),
         loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
+
+    {ask_blocks, ID} ->
+      spawn (fun() -> skimChain(ID, ID, Blocks, 0, true) end),
+      loop (Nodes, TransactionsList, Blocks, Heads, Nonces);
 
     %l'attore mining comunica che il processo è terminato e ne viene chiamato uno nuovo, con le transazioni da minare aggiornate
     {ask_transactions, Mined} ->
@@ -330,6 +340,17 @@ research (Nodes, Self)  ->
     end,
     nodeLS ! {ask_friend}.
 
+skimChain (Head, ID, Blocks, Leng, Flag)  ->
+    case Flag of 
+      true -> sleep (5);
+      false -> ok
+    end,
+    case findBlockGivenId (Blocks, ID) of
+        none ->      nodeLS ! {add_head, {Head, Leng}};
+        notfound ->  nodeLS! {ask_blocks, Head};
+        X ->         skimChain (Head, element(2,X), Blocks, Leng +1, false)
+    end.
+
 %funzione che consente a un nodo di fare una transazione. Una transazione è composta da ID e Payload (l'input fornito dall'utente-nodo)
 makeT (Payload) -> 
        NewT = {make_ref(), Payload},
@@ -343,4 +364,5 @@ main() ->
     Ref = make_ref(),
     global:send(teacher_node, {get_friends, Self, Ref}),
     loop([],[],[],[], [Ref]).
-    %net_adm:ping('docente@localhost'). spawn (fun() -> main:main() end).
+    %net_adm:ping('docente@localhost').
+    %spawn (fun() -> main:main() end).
