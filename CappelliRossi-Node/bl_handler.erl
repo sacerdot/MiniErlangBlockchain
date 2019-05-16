@@ -5,7 +5,7 @@
 
 % codice gestore transazioni: avvia il miner e aspetta di ricevere messaggi
 bl_handler_actor(PID_main, PID_tr_handler, Bl_list) ->
-  io:format("bl_handler_actor ~p started ~n", [self()]),
+  %io:format("bl_handler_actor ~p started ~n", [self()]),
   process_flag(trap_exit, true),
   PID_get_previous = spawn_link(fun() -> gp_handler:gp_actor([]) end),
   loop_bl_handler_actor(PID_main, PID_get_previous, PID_tr_handler, Bl_list).

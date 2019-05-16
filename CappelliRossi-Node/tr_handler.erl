@@ -3,7 +3,7 @@
 
 % codice gestore transazioni: avvia il miner e aspetta di ricevere messaggi
 tr_handler_actor(PID_main, Tr_list, Tr_in_block_list) ->
-  io:format("tr_handler_actor ~p started ~n", [self()]),
+  %io:format("tr_handler_actor ~p started ~n", [self()]),
   process_flag(trap_exit, true),
   Self = self(),
   receive

@@ -1,5 +1,5 @@
 -module(friends_library).
--export([watch/2, checker_Nonce/2, addFriendsToList/5, adder_friends/1, checker_list/1, sendMessageToTeacher/1, sendMessageToFriend/2]).
+-export([watch/2, checker_Nonce/2, addFriendsToList/4, adder_friends/1, checker_list/1, sendMessageToTeacher/1, sendMessageToFriend/2]).
 
 % Il watcher manda un messaggio ping ad un nostro amico che monitora e se entro 5 secondi l'amico non risponde con pong, esso
 % viene considerato morto e il watcher ci notifica della sua morte tramite il messaggio dead
@@ -8,14 +8,14 @@ watch(Main, Friend) ->
   Self = self(),
   Nonce = make_ref(),
   Friend ! {ping, Self, Nonce},
-  %io:format("Watcher ~p -> ping to ~p~n",[Self, Friend]),
+  %io:format("~n~n~nWatcher ~p -> ping to ~p~n~n~n",[Self, Friend]),
   receive
     {pong, Nonce} ->
-      %io:format("Watcher ~p -> pong from ~p~n",[Self, Friend]),
+      %io:format("~n~n~nWatcher ~p -> pong from ~p~n~n~n",[Self, Friend]),
       watch(Main, Friend)
   after 5000 ->
     Main ! {dead, Self, Friend}
-    %io:format("Watcher ~p -> dead to ~p~n",[Self, Main])
+    %%io:format("Watcher ~p -> dead to ~p~n",[Self, Main])
   end.
 
 % Controllo che il Nonce del messaggio get_friends che noi inviamo ad un nostro amico e del messaggio friends con cui
@@ -30,16 +30,16 @@ watch(Main, Friend) ->
 checker_Nonce(Main, Nonce_list) ->
   receive
     {nonce, Main, {get_friends, Main, Nonce_send}} ->
-      %io:format("Node ~p -> Send Nonce ~p~n", [Main, Nonce_send]),
+      %%io:format("Node ~p -> Send Nonce ~p~n", [Main, Nonce_send]),
       checker_Nonce(Main, [Nonce_send] ++ Nonce_list);
     {check_nonce, Main, Nonce, Friends_list_received} ->
       case lists:member(Nonce,Nonce_list) of
         true ->
           Main ! {nonce_checked, self(), Friends_list_received},
-          %io:format("Node ~p -> Nonce checked ~p~n", [Main, Nonce]),
+          %%io:format("Node ~p -> Nonce checked ~p~n", [Main, Nonce]),
           checker_Nonce(Main, Nonce_list -- [Nonce]);
         false ->
-          %io:format("Node ~p -> Nonce not checked ~p~n", [Main, Nonce]),
+          %%io:format("Node ~p -> Nonce not checked ~p~n", [Main, Nonce]),
           checker_Nonce(Main, Nonce_list)
       end
   end.
@@ -55,28 +55,29 @@ checker_Nonce(Main, Nonce_list) ->
 % 2) se la lunghezza è minore di 3 allora si invia un messaggio get_friends ad un amico random
 % Se all'inizio dell'esecuzione, sia List_tmp che Friends_list sono vuote, significa che si hanno zero amici, per cui
 % si invierà un messaggio get_friends al nodo professore
-addFriendsToList(Main, List_tmp, Friends_list, Friends_list_ask, Watcher_list) ->
+addFriendsToList(Main, List_tmp, Friends_list, Friends_list_ask) ->
   case length(List_tmp) > 0 of
     true ->
       case length(Friends_list) < 3 of
         true ->
           Friend = lists:nth(rand:uniform(length(List_tmp)), List_tmp),
-          %io:format("Node ~p -> New friend ~p~n",[Main, Friend]),
-          W = spawn_link(fun() -> watch(Main, Friend) end),
-          addFriendsToList(Main, List_tmp -- [Friend], [Friend] ++ Friends_list, [Friend] ++ Friends_list, [{watcher, Friend, W}] ++ Watcher_list);
+          %%io:format("Node ~p -> New friend ~p~n",[Main, Friend]),
+          %W = spawn_link(fun() -> watch(Main, Friend) end),
+          %%io:format("~n~n~nNode ~p -> New watcher ~p~n~n~n",[Main, W]),
+          addFriendsToList(Main, List_tmp -- [Friend], [Friend] ++ Friends_list, [Friend] ++ Friends_list);
         false ->
-          {Friends_list, Friends_list_ask, Watcher_list}
+          {Friends_list, Friends_list_ask}
       end;
     false ->
-      {Friends_list, Friends_list_ask, Watcher_list}
+      {Friends_list, Friends_list_ask}
   end.
 
 % funzione eseguita in loop dell'attore che aggiunge gli amici
 adder_friends(Main) ->
   receive
-    {add_friends, Main, List_tmp, Friends_list, Friends_list_ask, Watcher_list} ->
-      {New_friends_list, New_friends_list_ask, New_watcher_list} = addFriendsToList(Main, List_tmp, Friends_list, Friends_list_ask, Watcher_list),
-      Main ! {friends_added, self(), New_friends_list, New_friends_list_ask, New_watcher_list}
+    {add_friends, Main, List_tmp, Friends_list, Friends_list_ask} ->
+      {New_friends_list, New_friends_list_ask} = addFriendsToList(Main, List_tmp, Friends_list, Friends_list_ask),
+      Main ! {friends_added, self(), New_friends_list, New_friends_list_ask}
   end,
   adder_friends(Main).
 
@@ -106,11 +107,11 @@ checker_list(Main) ->
 sendMessageToTeacher(Msg) ->
   case rand:uniform(10) of
     1 ->
-      %%io:format("Node ~p -> Messaggio al teacher_node non inviato ~n",[self()]),
+      %%%io:format("Node ~p -> Messaggio al teacher_node non inviato ~n",[self()]),
       ignore;
     2 ->
-      %io:format("Node ~p -> Chiedo la lista degli amici al nodo professore ~n",[self()]),
-      %io:format("Node ~p -> Messaggio al teacher_node inviato due volte ~n",[self()]),
+      %%io:format("Node ~p -> Chiedo la lista degli amici al nodo professore ~n",[self()]),
+      %%io:format("Node ~p -> Messaggio al teacher_node inviato due volte ~n",[self()]),
       global:send(teacher_node, Msg),
       global:send(teacher_node, Msg),
       % invio il messaggio al controllore dei Nonce
@@ -120,7 +121,7 @@ sendMessageToTeacher(Msg) ->
           checker_nonce_CR ! {nonce, self(), Msg}
       end;
     _ ->
-      %io:format("Node ~p -> Chiedo la lista degli amici al nodo professore ~n",[self()]),
+      %%io:format("Node ~p -> Chiedo la lista degli amici al nodo professore ~n",[self()]),
       global:send(teacher_node, Msg),
       % invio il messaggio al controllore dei Nonce
       case whereis(checker_nonce_CR) of
@@ -135,7 +136,7 @@ sendMessageToTeacher(Msg) ->
 sendMessageToFriend(Msg, Friend) ->
   case rand:uniform(10) of
     1 ->
-      %io:format("Node ~p -> Messaggio a ~p non inviato ~n", [self(), Friend]),
+      %%io:format("Node ~p -> Messaggio a ~p non inviato ~n", [self(), Friend]),
       false;
     2 ->
       Friend ! Msg,
@@ -146,7 +147,7 @@ sendMessageToFriend(Msg, Friend) ->
         _ ->
           checker_nonce_CR ! {nonce, self(), Msg}
       end,
-      %io:format("Node ~p -> Messaggio a ~p  inviato due volte ~n", [self(), Friend]),
+      %%io:format("Node ~p -> Messaggio a ~p  inviato due volte ~n", [self(), Friend]),
       true;
     _ ->
       Friend ! Msg,
@@ -156,6 +157,6 @@ sendMessageToFriend(Msg, Friend) ->
         _ ->
           checker_nonce_CR ! {nonce, self(), Msg}
       end,
-      %io:format("Node ~p -> get_friends to ~p~n", [self(), Friend]),
+      %%io:format("Node ~p -> get_friends to ~p~n", [self(), Friend]),
       true
   end.
