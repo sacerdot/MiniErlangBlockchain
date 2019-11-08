@@ -1,5 +1,5 @@
 -module(block_chain).
--import(support, [all_elements_are_different/2, index_of_block/2, get_first_elements/2, send_msg/2]).
+-import(support, [all_elements_are_different/2, index_of_block/2, get_first_elements/2, send_msg/2, trasform_to_list/1]).
 -export([mining/3, block_chain/3]).
 
 
@@ -12,6 +12,7 @@ mining(IDblocco_precedente,Lista_di_transazioni, Manager) ->
 
 
 %% Attore che gestisce la catena di blocchi e manda update al manager
+%  ListBlocks = lista di blocchi che possiede il manager
 %  NewList = lista di blocchi aggiornata, inserita nei parametri per semplificare update
 block_chain (Manager, ListBlocks, NewList) ->
 
@@ -28,39 +29,55 @@ block_chain (Manager, ListBlocks, NewList) ->
 
   % messaggio ricevuto dell'attore che fa mining
     {newblock, IDBlocco, Lista_di_transazioni, Soluzione} ->
+
+      %BlockTransactions conterrà l'elenco di tutte le transazioni presenti nella block chain
       BlockTransactions = lists:map(fun(Block) -> element(3, Block) end, ListBlocks),
 
-      % Se ci sono elementi comuni non aggiungo il blocco
+      % Se ci sono transazioni comuni tra quelle del blocco minato e quelle nella block chain non aggiungo il nuovo blocco
       DiffElement = all_elements_are_different(BlockTransactions, Lista_di_transazioni),
       if(DiffElement==false) -> block_chain(Manager, ListBlocks, NewList); true->ok end,
 
+      % risalgo al id dell'ultimo blocco
       IDblocco_precedente = if length(ListBlocks) > 0 -> element(1,  lists:nth(length(ListBlocks), ListBlocks)); true -> 0  end,
 
       NEWID = make_ref(),
-
+      % se i due id coincidono significa che il blocco che ho ricevuto è proprio quello che mi aspetto
+      % altrimenti accetto il nuovo blocco anche se la mia block chain è vuota
       if( (IDBlocco =:= IDblocco_precedente) or (length(ListBlocks) =:= 0)) ->
         block_chain(Manager, ListBlocks, ListBlocks ++ [{NEWID, IDblocco_precedente, Lista_di_transazioni, Soluzione}]);
         true -> block_chain(Manager, ListBlocks, NewList)
       end;
 
 
-  % messaggio che indica la scoperta di un nuovo blocco
+  % messaggio proveniente da un amico che ha aggiunto un nuovo blocco
     {update, Sender, Blocco } ->
+
+      % se il blocco è nella mia lista non faccio niente
       IsBlockKnown = lists:any(fun(E) -> E == Blocco end, ListBlocks),
       if
         IsBlockKnown -> ok;
+
       % blocco sconosciuto
         true ->
-
-          Myblocco_precedente = if length(ListBlocks) > 0 -> element(1,  lists:nth(length(ListBlocks), ListBlocks)); true -> 0 end,
+          % estraggo i campi e verifico che il blocco sia corretto
           IDblocco_precedente = element(2, Blocco),
           Lista_di_transazioni = element(3, Blocco),
           Soluzione =  element(4, Blocco),
           Correct = proof_of_work:check({IDblocco_precedente, Lista_di_transazioni}, Soluzione),
+
+          % estraggo l'Id del mio ultimo blocco, se la lista è vuota prendo 0
+          IDultimo_mio_blocco= if length(ListBlocks) > 0 -> element(1,  lists:nth(length(ListBlocks), ListBlocks)); true -> 0 end,
+
           if
-            Correct and (IDblocco_precedente =:= Myblocco_precedente) ->
-              % devo ricostruire la catena
+            % se il blocco è corretto e la mia block chain è vuota il blocco ricevuto sarà il primo mio blocco della catena
+            Correct and (IDultimo_mio_blocco == 0) ->
+              block_chain(Manager, ListBlocks, [Blocco]);
+
+            % se il blocco è corretto e la mia block chain non è vuota avvio l'algoritmo di ricostruzione della catena
+            Correct   ->
+              % avvio algoritmo di ricostruzione della catena
               ricostruzioneCatena(Manager, ListBlocks, [Blocco], Sender, 0);
+
             true -> ok
           end
       end,
@@ -70,14 +87,18 @@ block_chain (Manager, ListBlocks, NewList) ->
 
 
 
-% chiedo al mittente del messaggio i suoi blocchi finche non ne trovo che abbia lo stesso ID di un mio blocco
+% chiedo al mittente del messaggio i suoi blocchi finche non ne trovo uno che abbia lo stesso ID di un mio blocco
 % a quel punto mantengo la prima parte della mia catena (fino alla biforcazione) e ci aggiungo
 % la catena più lunga tra quella che ho chisto al mittende e la rimanente parte della mia
-% Attempts = tentavi in cui non si riceve la risposta richiesta dal nodo
+% Attempts = tentavi in cui non si riceve la risposta  richiesta dal nodo
 % arrivati a 10 ipotizziamo che il Sender sia morto
 % altrimenti continuiamo a chiedere blocchi
+
+% ListBlocks = mia blockchain
+% SenderList = blocchi che mi ha inviato fino a questo momento il sender
 ricostruzioneCatena(Manager, ListBlocks, SenderList, Sender, Attempts) ->
 
+  % probabilmente il mittente è morto mi comporto come se non avessi ricevuto per messaggio quel blocco
   if(Attempts == 10 ) -> block_chain(Manager, ListBlocks, ListBlocks); true -> ok end,
 
   % il primo blocco è quello nuovo che devo ancora esaminare
@@ -85,38 +106,59 @@ ricostruzioneCatena(Manager, ListBlocks, SenderList, Sender, Attempts) ->
   IsBlockKnown = lists:any(fun(E) -> E == SenderList end, ListBlocks),
 
 
+  % se il blocco è conosciuto o sono arrivato al primo blocco del mittente devo ricostruire la catena
 
-  % se il blocco è conosciuto o sono arrivato al primo blocco del mittente
-  % devo ricostruire la catena
-  if (IsBlockKnown) or  (element(2,NuovoBlocco) =:= 0) ->
+  LenMyList = length(ListBlocks),
+  LenSend = length(SenderList),
+  % longer2 conterra la catena piu lunga
+  Longer2 = if(LenMyList >= LenSend) ->ListBlocks; true -> SenderList  end,
 
-    % posizione del nuovo blocco nella mia catena
+  % se l'ultimo blocco ricevuto del mittente è il suo primo blocco
+  % quindi non abbiamo trovato blocchi in comune
+  % la catena più lunga tra le due diventerà la nuova blockchain
+  if (   (element(2,NuovoBlocco) =:= 0)    or     (element(2,NuovoBlocco) =:= none)    ) ->   block_chain(Manager, ListBlocks, Longer2);
+
+
+    IsBlockKnown  ->
+    % Index = posizione del nuovo blocco nella mia catena
     Index = index_of_block(ListBlocks, NuovoBlocco ),
+    % LenSender sara data dai blocchi nuovi ricevuti dal sender + la lunghezza della catena comune al sender e alla mia
     LenSender = length(SenderList) + Index,
-    LenMyList = length(ListBlocks),
 
-    LongerList = if(LenSender > LenMyList) -> get_first_elements(ListBlocks,Index) ++ SenderList; true -> ListBlocks  end,
+    % se la lista del sender è maggiore della mia
+    % la mia nuova catena sarà data dalla parte della catena che possiedo (e ritengo essere comune)
+    % piu i blocchi nuovi ricevuti dal sender
+    LongerList = if(LenSender > LenMyList) -> get_first_elements(ListBlocks,Index ) ++ SenderList; true -> ListBlocks  end,
     block_chain(Manager, ListBlocks, LongerList);
 
 
   %% altrimenti chiedo un altro blocco al mittente
     true ->
       Nonce = make_ref(),
-      Sender ! {get_previous, self(), Nonce, element(2,NuovoBlocco)} ,
+      send_msg(Sender , {get_previous, self(), Nonce, element(2,NuovoBlocco)}) ,
 
       receive
+        % messaggio del sender che contiene il blocco che ho richiesto
         {previous, Nonce, Blocco} ->
+          IsPresent = lists:member(Blocco, ListBlocks),
 
-          if(length(Blocco) =:= 0 ) ->
-            if(length(SenderList) > length(ListBlocks)) ->
-              block_chain(Manager, ListBlocks, SenderList);
-              true -> block_chain(Manager, ListBlocks, ListBlocks)
-            end;
 
-            true ->
-              ricostruzioneCatena(Manager, ListBlocks, Blocco ++ SenderList, Sender, 0)
+          % se lo possiedo non mi interessa
+          if IsPresent -> ricostruzioneCatena(Manager, ListBlocks,SenderList, Sender, 0);
+
+            true->
+              if (length(Blocco) =:= 0) ->
+                % posso prendere la catena piu lunga
+                if(length(SenderList) > length(ListBlocks)) -> block_chain(Manager, ListBlocks, SenderList);
+                  true -> block_chain(Manager, ListBlocks, ListBlocks) end;
+                true ->
+                  % altrimenti aggiungo il blocco a quelli gia ricevuti e continuo con la ricostruzione della catena
+                  Blocco2 = if is_list(Blocco) -> Blocco; true->[Blocco] end,
+                  ricostruzioneCatena(Manager, ListBlocks, Blocco2 ++ SenderList, Sender, 0)
+          end
           end
 
+      % non ho ricevuto risposta, aumento il contatore dei tentativi e riprovo
       after 20 ->
         ricostruzioneCatena(Manager, ListBlocks, SenderList, Sender, Attempts + 1)
       end
