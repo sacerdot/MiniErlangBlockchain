@@ -1,5 +1,5 @@
 -module(test).
--author("Lorenzo").
+-author("Lorenzo Massimiliani, Lorenzo Vainigli").
 -import(main, [start/0, start/1]).
 -import(support, [sleep/1]).
 -export([test/0, test2/0, test3/0]).
@@ -18,9 +18,7 @@ test() ->
   [Friend ! {stampa} || Friend <-  [PID1]++[PID2]++[PID3]++[PID4]].
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%% Altri Test %%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Altri Test %%%
 
 test2() ->
   spawn(teacher_node, main, []), % teacher node

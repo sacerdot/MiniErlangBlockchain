@@ -68,9 +68,9 @@ addRef(List, List2) ->  if(List2 == [[]] ) -> List; true -> List ++ List2 end.
 add_friends(List1, [], _) -> List1;
 add_friends(List1, List2, Parent) ->
   MyPid = self(),
-  if
-    length(List1) >= 3 -> List1;
-    true ->
+  case length(List1) >= 3 of
+    true -> List1;
+    false ->
       RandomElement = lists:nth(rand:uniform(length(List2)), List2),
       spawn(fun() ->watch(MyPid, RandomElement) end),
       add_friends(List1++[RandomElement], List2--[RandomElement], Parent)
