@@ -92,12 +92,12 @@ block_chain (Manager, ListBlocks, NewList) ->
 % chiedo al mittente del messaggio i suoi blocchi finche non ne trovo uno che abbia lo stesso ID di un mio blocco
 % a quel punto mantengo la prima parte della mia catena (fino alla biforcazione) e ci aggiungo
 % la catena più lunga tra quella che ho chisto al mittende e la rimanente parte della mia
-% Attempts = tentavi in cui non si riceve la risposta  richiesta dal nodo
-% arrivati a 10 ipotizziamo che il Sender sia morto
-% altrimenti continuiamo a chiedere blocchi
 
 % @param ListBlocks = mia blockchain
 % @param SenderList = blocchi che mi ha inviato fino a questo momento il sender
+% @param Attempts = tentavi in cui non si riceve la risposta  richiesta dal nodo
+% arrivati a 10 ipotizziamo che il Sender sia morto
+% altrimenti continuiamo a chiedere blocchi
 ricostruzioneCatena(Manager, ListBlocks, SenderList, Sender, Attempts) ->
 
   % probabilmente il mittente è morto mi comporto come se non avessi ricevuto per messaggio quel blocco
@@ -157,7 +157,7 @@ ricostruzioneCatena(Manager, ListBlocks, SenderList, Sender, Attempts) ->
                   % altrimenti aggiungo il blocco a quelli gia ricevuti e continuo con la ricostruzione della catena
                   Blocco2 = case is_list(Blocco) of true -> Blocco; false ->[Blocco] end,
                   ricostruzioneCatena(Manager, ListBlocks, Blocco2 ++ SenderList, Sender, 0)
-          end
+              end
           end
 
       % non ho ricevuto risposta, aumento il contatore dei tentativi e riprovo

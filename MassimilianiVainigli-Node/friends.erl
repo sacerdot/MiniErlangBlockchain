@@ -3,7 +3,7 @@
 -import(support, [sleep/1, filter_a/2, send_msg/2, addRef/2, add_friends/3, watch/2]).
 -export([check_nodes/4]).
 
-%% attore che si occupa di mantere la topologia della rete
+% Attore che si occupa di mantere la topologia della rete
 % @param Parent = attore manager
 % @param List_friends = lista di amici
 % @param Attempts = tentativi falliti di aggiungere amici contattando un amico, arrivato a 10 chiede al nodo professore un nuovo amico

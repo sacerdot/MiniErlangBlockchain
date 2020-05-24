@@ -4,7 +4,7 @@
 -import(block_chain, [mining/3]).
 -export([manager/7]).
 
-% Nodo principale, registrato dal nodo professore
+% Attore principale, registrato dal nodo professore
 % @param Friendship = nodo che controlla gli amici
 % @param BlockChain = nodo che controlla blockChain
 % @param Miner = nodo che fa mining
@@ -90,10 +90,10 @@ manager(Friendship, BlockChain, Miner, List_friends, List_blocks, Not_inserted_t
       BlockTransactions = lists:map(fun(Block) -> element(3, Block) end, List_blocks),
 
       % se eventualmente non sono liste le rendo liste
-      Trans_list = if is_list(Transazione) -> Transazione; true -> [Transazione] end,
-      BlockTransactions_list = if is_list(BlockTransactions) -> BlockTransactions; true -> [BlockTransactions] end,
-      Not_inserted_list =  if is_list(Not_inserted_transactions) -> Not_inserted_transactions; true -> [Not_inserted_transactions] end,
-      Mining_list = if is_list(Mining_transactions) -> Mining_transactions; true -> [Mining_transactions] end,
+      Trans_list = case is_list(Transazione) of true -> Transazione; false -> [Transazione] end,
+      BlockTransactions_list = case is_list(BlockTransactions) of true -> BlockTransactions; false -> [BlockTransactions] end,
+      Not_inserted_list =  case is_list(Not_inserted_transactions) of true -> Not_inserted_transactions; false -> [Not_inserted_transactions] end,
+      Mining_list = case is_list(Mining_transactions) of true -> Mining_transactions; false -> [Mining_transactions] end,
 
       % Transazioni ricevute meno transazioni già presenti in una delle liste
       NewTransitions = ((flatten(Trans_list) -- flatten(BlockTransactions_list))  -- flatten(Not_inserted_list)) -- flatten(Mining_list),
